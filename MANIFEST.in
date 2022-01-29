@@ -1,0 +1,4 @@
+graft actorch/resources
+include actorch/py.typed
+global-exclude __pycache__
+global-exclude *.py[co]

@@ -1,0 +1,60 @@
+# ==============================================================================
+# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# ==============================================================================
+
+# Adapted from:
+# https://github.com/matplotlib/matplotlib/blob/ec0132f66170dabc6352ba79d839b1dd9eb02157/lib/matplotlib/mpl-data/stylelib/seaborn-ticks.mplstyle#L1
+
+
+# 0.15 = dark_gray
+# 0.8 = light_gray
+
+axes.axisbelow: True
+axes.edgecolor: 0.15
+axes.facecolor: white
+axes.grid: True
+axes.labelcolor: 0.15
+axes.labelsize: 12.5
+axes.linewidth: 1.0
+axes.spines.right: False
+axes.spines.top: False
+axes.titlesize: 15
+axes.unicode_minus: False
+
+figure.facecolor: white
+figure.figsize: 7.5, 6.0
+
+font.family: serif
+font.size: 12.5
+
+grid.color: 0.75
+grid.linestyle: dashed
+grid.linewidth: 0.9
+
+image.cmap: Greys
+
+legend.fancybox: True
+legend.fontsize: 12.5
+legend.frameon: True
+legend.handlelength: 0.75
+legend.handletextpad: 0.5
+legend.numpoints: 1
+legend.scatterpoints: 1
+
+lines.linewidth: 1.2
+lines.markersize: 5.0
+lines.solid_capstyle: round
+
+text.color: 0.15
+
+xtick.color: 0.15
+xtick.direction: out
+xtick.labelsize: 10
+xtick.major.size: 6
+xtick.minor.size: 3
+
+ytick.color: 0.15
+ytick.direction: out
+ytick.labelsize: 10
+ytick.major.size: 6
+ytick.minor.size: 3

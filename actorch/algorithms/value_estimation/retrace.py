@@ -1,0 +1,127 @@
+# ==============================================================================
+# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# ==============================================================================
+
+"""Retrace."""
+
+from typing import Optional, Tuple, Union
+
+import torch
+from torch import Tensor
+from torch.distributions import Distribution
+
+from actorch.algorithms.value_estimation.generalized_estimator import (
+    generalized_estimator,
+)
+
+
+__all__ = [
+    "retrace",
+]
+
+
+def retrace(
+    state_values: "Union[Tensor, Distribution]",
+    action_values: "Union[Tensor, Distribution]",
+    rewards: "Tensor",
+    dones: "Tensor",
+    mask: "Tensor",
+    log_is_weights: "Tensor",
+    next_state_values: "Optional[Union[Tensor, Distribution]]" = None,
+    discount: "float" = 0.99,
+    trace_decay: "float" = 1.0,
+    max_is_weight_trace: "float" = 1.0,
+    max_is_weight_advantage: "float" = 1.0,
+    standardize_advantage: "bool" = False,
+    epsilon: "float" = 1e-6,
+) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    """Compute the (distributional) Retrace targets, a.k.a. Retrace(lambda), and the corresponding
+    advantages of a trajectory.
+
+    In the following, let `B` denote the batch size and `T` the trajectory maximum length.
+
+    Parameters
+    ----------
+    state_values:
+        The (distributional) state values (`v_t` in the literature),
+        shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
+    action_values:
+        The (distributional) action values (`q_t` in the literature),
+        shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
+    rewards:
+        The rewards (`r_t` in the literature), shape: ``[B, T]``.
+    dones:
+        The end-of-episode flags, shape: ``[B, T]``.
+    mask:
+        The boolean tensor indicating which elements (or batch elements
+        if distributional) are valid (True) and which are not (False),
+        shape: ``[B, T]``.
+    log_is_weights:
+        The log importance sampling weights, defined as
+        ``target_policy.log_prob(action) - behavior_policy.log_prob(action)``,
+        where `target_policy` (`pi` in the literature) is the policy being learned about,
+        and `behavior_policy` (`mu` in the literature) the one used to generate the data,
+        shape: ``[B, T]``.
+    next_state_values:
+        The (distributional) next state values (`v_t+1` in the literature),
+        shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
+        Default to `state_values` from the second timestep on, with a bootstrap value set to 0.
+    discount:
+        The discount factor (`gamma` in the literature).
+    trace_decay:
+        The trace-decay parameter (`lambda` in the literature).
+    max_is_weight_trace:
+        The maximum importance sampling weight for trace computation (`c_bar` in the literature).
+    max_is_weight_advantage:
+        The maximum importance sampling weight for advantage computation.
+    standardize_advantage:
+        True to standardize the advantages, False otherwise.
+    epsilon:
+        The term added to the denominators to improve numerical stability.
+
+    Returns
+    -------
+        - The (distributional) Retrace targets,
+          shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
+        - the corresponding advantages, shape: ``[B, T]``.
+
+    Raises
+    ------
+    ValueError
+        If an invalid argument value is provided.
+
+    References
+    ----------
+    .. [1] R. Munos, T. Stepleton, A. Harutyunyan, and M. G. Bellemare. "Safe and
+           Efficient Off-Policy Reinforcement Learning". In: NeurIPS. 2016, pp. 1054-1062.
+           URL: https://arxiv.org/abs/1606.02647
+
+    """
+    if max_is_weight_trace <= 0.0:
+        raise ValueError(
+            f"`max_is_weight_trace` ({max_is_weight_trace}) must be in the interval (0, inf)"
+        )
+    if max_is_weight_advantage <= 0.0:
+        raise ValueError(
+            f"`max_is_weight_advantage` ({max_is_weight_advantage}) must be in the interval (0, inf)"
+        )
+    is_weights = log_is_weights.exp()
+    trace_weights = trace_decay * is_weights.clamp(max=max_is_weight_trace)
+    delta_weights = torch.ones_like(is_weights)
+    advantage_weights = is_weights.clamp(max=max_is_weight_advantage)
+    return generalized_estimator(
+        state_values=state_values,
+        rewards=rewards,
+        dones=dones,
+        mask=mask,
+        trace_weights=trace_weights,
+        delta_weights=delta_weights,
+        advantage_weights=advantage_weights,
+        action_values=action_values,
+        next_state_values=next_state_values,
+        discount=discount,
+        num_return_steps=mask.shape[1],
+        trace_decay=trace_decay,
+        standardize_advantage=standardize_advantage,
+        epsilon=epsilon,
+    )
