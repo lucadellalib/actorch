@@ -2,4 +2,4 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Algorithms."""
+"""Deep reinforcement learning algorithms."""

@@ -13,7 +13,6 @@ from torch.distributions.constraints import Constraint
 
 from actorch.distributions.constraints import cat
 from actorch.distributions.utils import is_discrete
-from actorch.registry import register
 
 
 __all__ = [
@@ -21,7 +20,6 @@ __all__ = [
 ]
 
 
-@register
 class CatDistribution(Distribution):
     """Concatenate a sequence of base distributions with identical
     batch shapes along one of their event dimensions.

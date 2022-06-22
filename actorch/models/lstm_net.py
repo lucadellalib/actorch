@@ -2,27 +2,23 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Recurrent model."""
+"""Long short-term memory neural network model."""
 
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import torch
-import torch.nn as nn
-from torch import Tensor, device
+from torch import Size, Tensor, device, nn
 
-from actorch.models.fc import FC
-from actorch.models.hydra import Hydra
-from actorch.registry import register
+from actorch.models.fc_net import FCNet
 
 
 __all__ = [
-    "Recurrent",
+    "LSTMNet",
 ]
 
 
-@register
-class Recurrent(FC):
-    """Recurrent model."""
+class LSTMNet(FCNet):
+    """Long short-term memory neural network model."""
 
     def __init__(
         self,
@@ -31,6 +27,8 @@ class Recurrent(FC):
         torso_lstm_config: "Optional[Dict[str, Any]]" = None,
         head_fc_bias: "bool" = True,
         head_activation_builder: "Callable[..., nn.Module]" = nn.Identity,
+        head_activation_config: "Optional[Dict[str, Any]]" = None,
+        independent_heads: "Optional[Sequence[str]]" = None,
     ) -> "None":
         """Initialize the object.
 
@@ -44,6 +42,7 @@ class Recurrent(FC):
             of the outputs to their corresponding event shapes.
         torso_lstm_config:
             The torso LSTM configuration.
+            Argument `input_size` is set internally.
             Default to ``{
                 "hidden_size": 64,
                 "num_layers": 2,
@@ -56,10 +55,21 @@ class Recurrent(FC):
         head_fc_bias:
             True to learn an additive bias in the head
             fully connected layer, False otherwise
-            (the same for all heads).
+            (the same for all input-dependent heads).
         head_activation_builder:
-            The head activation builder
-            (the same for all heads).
+            The head activation builder (the same for all
+            input-dependent heads), i.e. a callable that
+            receives keyword arguments from a configuration
+            and returns an activation.
+        head_activation_config:
+            The head activation configuration
+            (the same for all input-dependent heads).
+            Default to ``{}``.
+        independent_heads:
+            The names of the input-independent heads.
+            These heads return a constant output tensor,
+            optimized during training.
+            Default to ``[]``.
 
         """
         self.torso_lstm_config = torso_lstm_config or {
@@ -73,11 +83,13 @@ class Recurrent(FC):
         }
         self.head_fc_bias = head_fc_bias
         self.head_activation_builder = head_activation_builder
-        Hydra.__init__(self, in_shapes, out_shapes)
+        self.head_activation_config = head_activation_config or {}
+        self.independent_heads = independent_heads or []
+        super(FCNet, self).__init__(in_shapes, out_shapes)
 
     # override
-    def _setup_torso(self, in_shape: "Tuple[int, ...]") -> "None":
-        self.torso = nn.LSTM(torch.Size(in_shape).numel(), **self.torso_lstm_config)
+    def _setup_torso(self, in_shape: "Size") -> "None":
+        self.torso = nn.LSTM(in_shape.numel(), **self.torso_lstm_config)
 
     # override
     def _forward_torso(
@@ -110,7 +122,7 @@ class Recurrent(FC):
         lstm_state = None
         if hidden_state is not None and cell_state is not None:
             lstm_state = tuple(
-                x.reshape(x.shape[0], -1, x.shape[-1])
+                x.movedim(-2, 0).reshape(x.shape[-2], -1, x.shape[-1])
                 for x in [hidden_state, cell_state]
             )
         packed_output, lstm_state = self.torso(
@@ -120,8 +132,10 @@ class Recurrent(FC):
         output, _ = nn.utils.rnn.pad_packed_sequence(packed_output, batch_first)
         output = output.reshape(*batch_shape, -1)
         states["hidden_state"], states["cell_state"] = tuple(
-            x.reshape(
-                -1, *(batch_shape[:-1] if batch_first else batch_shape[1:]), x.shape[-1]
+            x.movedim(0, -2).reshape(
+                *(batch_shape[:-1] if batch_first else batch_shape[1:]),
+                x.shape[0],
+                x.shape[-1],
             )
             for x in lstm_state
         )
@@ -136,18 +150,27 @@ class Recurrent(FC):
         example_inputs = super().get_example_inputs(batch_shape, device)
         hidden_size = self.torso_lstm_config["hidden_size"]
         num_layers = self.torso_lstm_config["num_layers"]
+        batch_first = self.torso_lstm_config["batch_first"]
         num_directions = 2 if self.torso_lstm_config["bidirectional"] else 1
         proj_size = self.torso_lstm_config["proj_size"]
+        missing_batch_ndims = 2 - len(batch_shape)
+        if missing_batch_ndims > 0:
+            batch_shape = (
+                (1,) * missing_batch_ndims + batch_shape
+                if batch_first
+                else batch_shape + (1,) * missing_batch_ndims
+            )
+        state_batch_shape = batch_shape[:-1] if batch_first else batch_shape[1:]
         example_inputs[1]["hidden_state"] = torch.rand(
             (
+                *state_batch_shape,
                 num_directions * num_layers,
-                *batch_shape,
                 proj_size if proj_size > 0 else hidden_size,
             ),
             device=device,
         )
         example_inputs[1]["cell_state"] = torch.rand(
-            (num_directions * num_layers, *batch_shape, hidden_size),
+            (*state_batch_shape, num_directions * num_layers, hidden_size),
             device=device,
         )
         return example_inputs

@@ -2,13 +2,13 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Neural network modules."""
+"""Parameter module."""
 
 from typing import Any, Tuple
 
-import torch.nn as nn
+import torch
 from torch import Tensor
-from torch.nn import Parameter
+from torch.nn import Module, Parameter
 
 
 __all__ = [
@@ -16,26 +16,32 @@ __all__ = [
 ]
 
 
-class ParameterModule(nn.Module):
-    """Wrap a `torch.nn.Parameter` so that it can be included in a
-    `torch.nn.Sequential`, `torch.nn.ModuleList` or `torch.nn.ModuleDict`.
+class ParameterModule(Module):
+    """Wrap a `torch.nn.Parameter` in a ``torch.nn.Module``."""
 
-    """
+    parameter: Parameter
+    """The underlying parameter."""
 
-    def __init__(self, in_shape: "Tuple[int, ...]", parameter: "Parameter") -> "None":
+    def __init__(
+        self,
+        in_shape: "Tuple[int, ...]",
+        out_shape: "Tuple[int, ...]",
+    ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
         in_shape:
             The input event shape.
-        parameter:
-            The parameter to wrap.
+        out_shape:
+            The output event shape
+            (i.e. the underlying parameter shape).
 
         """
         super().__init__()
-        self.in_shape = in_shape
-        self.parameter = parameter
+        self.in_shape = torch.Size(in_shape)
+        self.out_shape = torch.Size(out_shape)
+        self.parameter = Parameter(torch.zeros(out_shape))
 
     # override
     def forward(
@@ -49,12 +55,12 @@ class ParameterModule(nn.Module):
         Parameters
         ----------
         input:
-            The input.
+            The tensor.
 
         Returns
         -------
             The underlying parameter, expanded
-            to match the input batch shape.
+            to match the batch shape of `input`.
 
         """
         batch_shape = input.shape[: input.ndim - len(self.in_shape)]
@@ -62,3 +68,10 @@ class ParameterModule(nn.Module):
             batch_shape + (-1,) * self.parameter.ndim
         )
         return expanded_parameter
+
+    def __repr__(self) -> "str":
+        return (
+            f"{self.__class__.__name__}"
+            f"(in_shape: {self.in_shape}, "
+            f"out_shape: {self.out_shape})"
+        )

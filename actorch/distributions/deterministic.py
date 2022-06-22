@@ -11,7 +11,6 @@ from torch import Size, Tensor
 from torch.distributions import constraints
 
 from actorch.distributions.finite import Finite
-from actorch.registry import register
 
 
 __all__ = [
@@ -19,7 +18,6 @@ __all__ = [
 ]
 
 
-@register
 class Deterministic(Finite):
     """Distribution that returns a single deterministic value with probability equal to 1."""
 

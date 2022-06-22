@@ -5,15 +5,22 @@
 """Algorithm utilities."""
 
 from contextlib import contextmanager
-from typing import Iterator, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple, Type
 
+import ray
+import ray.train.torch  # Fix missing train.torch attribute
 import torch
+from ray import train
+from torch import distributed as dist
 from torch.nn import Module
+from torch.nn.parallel import DataParallel, DistributedDataParallel
 
 
 __all__ = [
     "count_params",
     "freeze_params",
+    "init_mock_train_session",
+    "prepare_model",
     "sync_polyak",
 ]
 
@@ -74,7 +81,7 @@ def sync_polyak(
     polyak_weight: "float" = 0.001,
 ) -> "None":
     """Synchronize `source_module` with `target_module`
-    via Polyak averaging.
+    through Polyak averaging.
 
     For each `target_param` in `target_module`,
     for each `source_param` in `source_module`:
@@ -122,3 +129,78 @@ def sync_polyak(
             target_param *= (1 - polyak_weight) / polyak_weight
             target_param += source_param
             target_param *= polyak_weight
+
+
+def init_mock_train_session() -> "None":
+    """Modified version of `ray.train.session.init_session` that
+    initializes a mock PyTorch Ray Train session.
+
+    Useful, for example, to enable the use of PyTorch Ray Train objects
+    and functions without instantiating a `ray.train.Trainer`.
+
+    """
+    # If a session already exists, do nothing
+    if train.session.get_session():
+        return
+    train.session.init_session(None, 0, 0, 1)
+    if dist.is_available() and dist.is_initialized():
+        session = train.session.get_session()
+        session.world_rank = dist.get_rank()
+        session.local_rank = (ray.get_gpu_ids() or [None])[0]
+        session.world_size = dist.get_world_size()
+
+
+def prepare_model(
+    model: "Module",
+    move_to_device: "bool" = True,
+    dp_cls: "Optional[Type[DataParallel]]" = DataParallel,
+    dp_kwargs: "Optional[Dict[str, Any]]" = None,
+    ddp_cls: "Optional[Type[DistributedDataParallel]]" = DistributedDataParallel,
+    ddp_kwargs: "Optional[Dict[str, Any]]" = None,
+) -> "Module":
+    """Modified version of `ray.train.torch.prepare_model` that additionally
+    wraps the model in a subclass of `torch.nn.parallel.DataParallel` if at
+    least 2 GPUs are available for each process.
+
+    Parameters
+    ----------
+    model:
+        The model.
+    move_to_device:
+        True to move the model to the correct device, False otherwise.
+    dp_cls:
+        The subclass of `torch.nn.parallel.DataParallel` in which to wrap
+        the model if at least 2 GPUs are available for each process.
+        If None, wrapping is not performed.
+    dp_kwargs:
+        The data parallel initialization keyword arguments
+        (ignored if `dp_cls` is None or not applicable).
+        Default to ``{}``.
+    ddp_cls:
+        The subclass of `torch.nn.parallel.DistributedDataParallel` in which
+        to wrap the model if at least 2 processes have been initialized.
+        If None, wrapping is not performed.
+    ddp_kwargs:
+        The distributed data parallel initialization keyword arguments
+        (ignored if `ddp_cls` is None or not applicable).
+        Default to ``{}``.
+
+    Returns
+    -------
+        The prepared model.
+
+    """
+    prepared_model = train.torch.prepare_model(
+        model, move_to_device, ddp_cls is not None, ddp_kwargs
+    )
+    if isinstance(prepared_model, DistributedDataParallel):
+        prepared_model.__class__ = ddp_cls
+    available_gpu_ids = ray.get_gpu_ids()
+    if dp_cls and len(available_gpu_ids) > 1:
+        dp_kwargs = dp_kwargs or {}
+        dp_kwargs = {"device_ids": available_gpu_ids, **dp_kwargs}
+        if isinstance(prepared_model, ddp_cls):
+            prepared_model.module = dp_cls(prepared_model.module, **dp_kwargs)
+        else:
+            prepared_model = dp_cls(prepared_model, **dp_kwargs)
+    return prepared_model

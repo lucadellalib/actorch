@@ -5,7 +5,7 @@
 """Batched environment."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from gym import Env
@@ -23,14 +23,22 @@ class BatchedEnv(ABC, Env):
     """Environment that runs multiple copies of a base environment."""
 
     def __init__(
-        self, env_builder: "Callable[[], Env]", num_workers: "int" = 1
+        self,
+        env_builder: "Callable[..., Env]",
+        env_config: "Optional[Dict[str, Any]]" = None,
+        num_workers: "int" = 1,
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
         env_builder:
-            The base environment builder.
+            The base environment builder, i.e. a callable that
+            receives keyword arguments from a configuration
+            and returns a base environment.
+        env_config:
+            The base environment configuration.
+            Default to ``{}``.
         num_workers:
             The number of copies of the base environment.
 
@@ -46,8 +54,9 @@ class BatchedEnv(ABC, Env):
             )
         num_workers = int(num_workers)
         self.env_builder = env_builder
+        self.env_config = env_config or {}
         self.num_workers = num_workers
-        dummy_env = env_builder()
+        dummy_env = self.env_builder(**self.env_config)
         self.single_observation_space = dummy_env.observation_space
         self.single_action_space = dummy_env.action_space
         self.metadata = dummy_env.metadata
@@ -96,7 +105,7 @@ class BatchedEnv(ABC, Env):
 
         Warnings
         --------
-        If ``mask[i]`` is ``False``, the corresponding
+        If ``mask[i]`` is False, the corresponding
         observation preserves its previous value.
 
         """
@@ -155,7 +164,7 @@ class BatchedEnv(ABC, Env):
 
         Warnings
         --------
-        If ``mask[i]`` is ``False``, the corresponding
+        If ``mask[i]`` is False, the corresponding
         observation, reward, end-of-episode flag and
         auxiliary diagnostic information preserve
         their previous value.
@@ -207,6 +216,11 @@ class BatchedEnv(ABC, Env):
             If the environment has already been closed.
         ValueError
             If length of `seed` is not equal to the number of workers.
+
+        Warnings
+        --------
+        Observation and action spaces are seeded along with the
+        workers (using ``seed[0]``).
 
         """
         if self._is_closed:
@@ -298,27 +312,27 @@ class BatchedEnv(ABC, Env):
 
     @abstractmethod
     def _reset(self, idx: "Sequence[int]") -> "Nested[ndarray]":
-        """See documentation of method `reset`."""
+        """See documentation of `reset`."""
         raise NotImplementedError
 
     @abstractmethod
     def _step(
         self, action: "Sequence[Nested]", idx: "Sequence[int]"
     ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray]":
-        """See documentation of method `step`."""
+        """See documentation of `step`."""
         raise NotImplementedError
 
     @abstractmethod
     def _seed(self, seed: "Sequence[Optional[int]]") -> "None":
-        """See documentation of method `seed`."""
+        """See documentation of `seed`."""
         raise NotImplementedError
 
     @abstractmethod
     def _render(self, idx: "Sequence[int]", **kwargs: "Any") -> "None":
-        """See documentation of method `render`."""
+        """See documentation of `render`."""
         raise NotImplementedError
 
     @abstractmethod
     def _close(self) -> "None":
-        """See documentation of method `close`."""
+        """See documentation of `close`."""
         raise NotImplementedError

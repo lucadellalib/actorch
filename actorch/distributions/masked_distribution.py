@@ -12,7 +12,6 @@ from torch.distributions import Distribution, constraints, utils
 from torch.distributions.constraints import Constraint
 
 from actorch.distributions.utils import is_discrete
-from actorch.registry import register
 
 
 __all__ = [
@@ -20,7 +19,6 @@ __all__ = [
 ]
 
 
-@register
 class MaskedDistribution(Distribution):
     """Mask a base distribution along its batch dimensions."""
 

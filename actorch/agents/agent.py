@@ -5,7 +5,7 @@
 """Agent."""
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from gym.spaces import Space
@@ -13,6 +13,7 @@ from numpy import ndarray
 from torch import device
 
 from actorch.envs import Flat, Nested
+from actorch.networks import PolicyNetwork
 from actorch.schedules import Schedule
 
 
@@ -22,14 +23,14 @@ __all__ = [
 
 
 class Agent(ABC):
-    """Interface between policy and environment that
+    """Interface between policy network and environment that
     optionally implements an exploration strategy.
 
     """
 
     def __init__(
         self,
-        policy: "Policy",
+        policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
         is_batched: "bool" = False,
@@ -39,8 +40,8 @@ class Agent(ABC):
 
         Parameters
         ----------
-        policy:
-            The policy.
+        policy_network:
+            The policy network.
         observation_space:
             The (possibly batched) observation space.
         action_space:
@@ -57,7 +58,7 @@ class Agent(ABC):
             If batch sizes of observation and action are not equal.
 
         """
-        self.policy = policy  # Check consitency withpolicy shapes
+        self.policy_network = policy_network  # Check consitency withpolicy shapes
         self.observation_space = observation_space
         self.action_space = action_space
         self.is_batched = is_batched
@@ -76,17 +77,19 @@ class Agent(ABC):
                 )
             self._batch_size = self._flat_observation_space.shape[0]
         self.reset()
+        self._schedules = {}
 
     @property
-    def schedules(self) -> "List[Schedule]":
+    def schedules(self) -> "Dict[str, Schedule]":
         """Return the agent public schedules.
 
         Returns
         -------
-            The agent public schedules.
+            The agent public schedules, i.e. a dict that maps
+            names of the schedules to the schedules themselves.
 
         """
-        return []
+        return self._schedules
 
     def reset(
         self,
@@ -154,9 +157,9 @@ class Agent(ABC):
                 f"be equal to the batch size of the given `observation_space` "
                 f"initialization argument ({self._batch_size})"
             )
-        self.policy.to(self.device)
-        if self.policy.training:
-            self.policy.eval()
+        self.policy_network.to(self.device)
+        if self.policy_network.training:
+            self.policy_network.eval()
         if not self._batch_size:
             # Add batch axis
             flat_observation = flat_observation[None]
@@ -170,7 +173,7 @@ class Agent(ABC):
     def __repr__(self) -> "str":
         return (
             f"{self.__class__.__name__}"
-            f"(policy: {self.policy}, "
+            f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
             f"is_batched: {self.is_batched}, "
@@ -178,7 +181,7 @@ class Agent(ABC):
         )
 
     def _reset(self, mask: "ndarray") -> "None":
-        """See documentation of method `reset`."""
+        """See documentation of `reset`."""
         pass
 
     @abstractmethod

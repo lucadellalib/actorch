@@ -4,9 +4,7 @@
 
 """Generalized estimator."""
 
-import warnings
-from contextlib import contextmanager
-from typing import Iterator, Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -88,7 +86,7 @@ def generalized_estimator(
     Raises
     ------
     ValueError
-        If an invalid argument value is provided.
+        If an invalid argument value is given.
 
     """
     if discount < 0.0 or discount > 1.0:
@@ -151,7 +149,7 @@ def _compute_targets(
     num_return_steps: "int" = 1,
 ) -> "Tensor":
     # x[~mask] = 0.0 is equivalent to x *= mask
-    # x[~mask] = 1.0 is equivalent to x += ~mask
+    # x[~mask] = 1.0 is equivalent to x *= mask, x += ~mask
     state_values, rewards, dones = state_values.clone(), rewards.clone(), dones.clone()
     trace_weights, delta_weights = trace_weights.clone(), delta_weights.clone()
     dones, mask = dones.bool(), mask.bool()
@@ -161,13 +159,15 @@ def _compute_targets(
         action_values = action_values.clone()
         action_values *= mask
     dones += ~mask
+    trace_weights *= mask
     trace_weights += ~mask
+    delta_weights *= mask
     delta_weights += ~mask
     B, T = state_values.shape
     num_return_steps = min(num_return_steps, T)
-    length = mask.sum(dim=1)
     if next_state_values is None:
-        next_state_values = F.pad(state_values[:, 1:], [0, 1])
+        length = mask.sum(dim=1)
+        next_state_values = F.pad(state_values, [0, 1])[:, 1:]
         next_state_values[torch.arange(B), length - 1] = 0.0
     else:
         next_state_values = next_state_values.clone()
@@ -181,6 +181,7 @@ def _compute_targets(
     )
     deltas *= mask
     window = discount * trace_weights
+    window *= mask
     window += ~mask
     # If the window is constant, use convolution, which is more memory and time-efficient
     is_constant_window = (window == window[:, :1])[mask].all()
@@ -214,23 +215,66 @@ def _compute_distributional_targets(
     discount: "float" = 0.99,
     num_return_steps: "int" = 1,
 ) -> "Distribution":
-    warnings.warn(
-        "Distributional value estimation is experimental and may not work as expected",
-    )
     # x[~mask] = 0.0 is equivalent to x *= mask
-    # x[~mask] = 1.0 is equivalent to x += ~mask
+    # x[~mask] = 1.0 is equivalent to x *= mask, x += ~mask
     rewards, dones = rewards.clone(), dones.clone()
     trace_weights, delta_weights = trace_weights.clone(), delta_weights.clone()
     dones, mask = dones.bool(), mask.bool()
     rewards *= mask
     dones += ~mask
+    trace_weights *= mask
     trace_weights += ~mask
+    delta_weights *= mask
     delta_weights += ~mask
     B, T = state_values.batch_shape
     num_return_steps = min(num_return_steps, T)
+    if next_state_values is None:
+        idx = torch.arange(1, T + 1).expand(B, T)
+        idx = idx.clamp(max=mask.sum(dim=1, keepdim=True) - 1)
+        next_state_values = _distributional_gather(
+            state_values, 1, idx, F.pad(mask, [0, 1])[:, 1:]
+        )
     state_or_action_values = (
         action_values if action_values is not None else state_values
     )
+    window = discount * trace_weights
+    window *= mask
+    window += ~mask
+    if ((trace_weights == 1.0) & (trace_weights == delta_weights))[mask].all():
+        # N-step return-like computation:
+        # targets depend only on rewards and next state values
+        window = F.pad(window, [0, num_return_steps - 1], value=1.0)
+        window = window.roll(1, dims=-1)
+        window[..., 0] = 1.0
+        window = window.cumprod(dim=-1)
+        offsets = delta_weights * rewards
+        next_state_value_coeffs = mask.float()
+        offsets = F.pad(offsets[None], [0, num_return_steps - 1])
+        next_state_value_coeffs = F.pad(
+            next_state_value_coeffs[None], [0, num_return_steps - 1]
+        )
+        offsets = F.conv1d(offsets, window[:, None, :num_return_steps], groups=B)[0]
+        next_state_value_coeffs = (
+            discount
+            ** F.conv1d(
+                next_state_value_coeffs,
+                torch.ones(B, 1, num_return_steps, device=offsets.device),
+                groups=B,
+            )[0]
+        )
+        next_state_value_coeffs *= ~dones
+        next_state_value_coeffs *= mask
+        # Gather
+        idx = torch.arange(num_return_steps - 1, T + num_return_steps - 1).expand(B, T)
+        idx = idx.clamp(max=mask.sum(dim=1, keepdim=True) - 1)
+        next_state_values = _distributional_gather(next_state_values, 1, idx)
+        # Transform
+        targets = TransformedDistribution(
+            next_state_values,
+            AffineTransform(offsets, next_state_value_coeffs),
+            validate_args=False,
+        ).reduced_dist
+        return targets
     coeffs = torch.stack(
         [
             delta_weights * rewards,  # Offsets
@@ -238,8 +282,6 @@ def _compute_distributional_targets(
             discount * delta_weights,  # `next_state_values` coefficients
         ]
     )
-    window = discount * trace_weights
-    window += ~mask
     coeffs = F.pad(coeffs, [0, num_return_steps - 1])
     window = F.pad(window, [0, num_return_steps - 1], value=1.0)
     # Pad mask using edge values
@@ -254,37 +296,27 @@ def _compute_distributional_targets(
     coeffs *= window
     coeffs[1, :, :, 0] += 1
     coeffs[2, ...] *= ~dones[..., None]
-    if next_state_values is None:
-        # To fix
-        next_state_values = state_values
-        coeffs[2, ...] = coeffs[2, ...].roll(1, dims=-1)
-        coeffs[2, ..., 0] = 0.0
     coeffs *= mask
-    with _patch_expand():
-        state_or_action_values = state_or_action_values.expand((B, T, num_return_steps))
-        next_state_values = next_state_values.expand((B, T, num_return_steps))
-    state_or_action_values = TransformedDistribution(
-        state_or_action_values,
-        [
-            AffineTransform(coeffs[0], coeffs[1]),
-            SumTransform((num_return_steps,)),
-        ],
-        validate_args=False,
-    ).reduced_dist
-    next_state_values = TransformedDistribution(
-        next_state_values,
-        [
-            AffineTransform(torch.zeros_like(coeffs[2]), coeffs[2]),
-            SumTransform((num_return_steps,)),
-        ],
-        validate_args=False,
-    ).reduced_dist
+    state_or_action_values = _distributional_unfoldNd(
+        state_or_action_values, (B, T, num_return_steps)
+    )
+    next_state_values = _distributional_unfoldNd(
+        next_state_values, (B, T, num_return_steps)
+    )
+    # Transform
     targets = TransformedDistribution(
         CatDistribution(
             [state_or_action_values, next_state_values],
             dim=-1,
         ),
-        SumTransform((2,)),
+        [
+            AffineTransform(
+                torch.stack([coeffs[0], torch.zeros_like(coeffs[0])], dim=-1),
+                torch.stack([coeffs[1], coeffs[2]], dim=-1),
+            ),
+            SumTransform((2,)),
+            SumTransform((num_return_steps,)),
+        ],
         validate_args=False,
     ).reduced_dist
     return targets
@@ -304,7 +336,7 @@ def _compute_advantages(
     epsilon: "float" = 1e-6,
 ) -> "Tensor":
     # x[~mask] = 0.0 is equivalent to x *= mask
-    # x[~mask] = 1.0 is equivalent to x += ~mask
+    # x[~mask] = 1.0 is equivalent to x *= mask, x += ~mask
     targets, state_values, rewards = (
         targets.clone(),
         state_values.clone(),
@@ -315,20 +347,22 @@ def _compute_advantages(
     targets *= mask
     state_values *= mask
     rewards *= mask
+    advantage_weights *= mask
     advantage_weights += ~mask
     B, T = state_values.shape
-    length = mask.sum(dim=1)
+    length = None
     if action_values is not None:
         # Replace action values with current action values estimate (Retrace-like)
         action_values = targets
     else:
         # Compute action values from current state values estimate (V-trace-like)
+        length = mask.sum(dim=1)
         next_targets = F.pad(
-            trace_decay * targets[:, 1:] + (1 - trace_decay) * state_values[:, 1:],
+            trace_decay * targets + (1 - trace_decay) * state_values,
             [0, 1],
-        )
+        )[:, 1:]
         if next_state_values is None:
-            next_state_values = F.pad(state_values[:, 1:], [0, 1])
+            next_state_values = F.pad(state_values, [0, 1])[:, 1:]
             next_state_values[torch.arange(B), length - 1] = 0.0
         else:
             next_state_values = next_state_values.clone()
@@ -340,34 +374,69 @@ def _compute_advantages(
     advantages = advantage_weights * (action_values - state_values)
     advantages *= mask
     if standardize_advantage:
+        if length is None:
+            length = mask.sum(dim=1)
         advantages_mean = (advantages.sum(dim=1) / length)[:, None]
         advantages -= advantages_mean
         advantages *= mask
         advantages_stddev = (
-            ((advantages ** 2).sum(dim=1) / length).sqrt().clamp(min=epsilon)[:, None]
+            ((advantages**2).sum(dim=1) / length).sqrt().clamp(min=epsilon)[:, None]
         )
         advantages /= advantages_stddev
         advantages *= mask
     return advantages
 
 
-def _unfoldNd(input: "Tensor", shape: "Tuple[int, ...]") -> "Tensor":
-    B, T, N = shape[0:3]
-    if input.ndim == 2:
-        result = F.pad(input, [0, N - 1])
-        return F.unfold(result[:, None, :, None], (T, 1))
-    result = input.reshape(B, 1, T, 1, -1)
-    result = F.pad(result, [0, 0, 0, 0, 0, N - 1]).movedim(-1, 0)
-    result = torch.stack([F.unfold(x, (T, 1)) for x in result], dim=-1)
-    result = result.reshape(B, T, N, *input.shape[2:])
-    return result
+def _distributional_gather(
+    distribution: "Distribution",
+    dim: "int",
+    index: "Tensor",
+    mask: "Optional[Tensor]" = None,
+) -> "Distribution":
+    def expand(input: "Tensor", *args: "Any", **kwargs: "Any") -> "Tensor":
+        expanded_index = index[(...,) + (None,) * (input.ndim - index.ndim)].expand_as(
+            input
+        )
+        result = input.gather(dim, expanded_index)
+        if mask is not None:
+            expanded_mask = mask[(...,) + (None,) * (input.ndim - mask.ndim)].expand_as(
+                input
+            )
+            result *= expanded_mask
+        return result
 
-
-@contextmanager
-def _patch_expand() -> "Iterator[None]":
     expand_backup = torch.Tensor.expand
+    torch.Tensor.expand = expand
     try:
-        torch.Tensor.expand = _unfoldNd
-        yield
+        return distribution.expand(index.shape)
+    finally:
+        torch.Tensor.expand = expand_backup
+
+
+def _distributional_unfoldNd(
+    distribution: "Distribution",
+    target_shape: "Tuple[int, ...]",
+) -> "Distribution":
+    def expand(input: "Tensor", *args: "Any", **kwargs: "Any") -> "Tensor":
+        B, T, N = target_shape[0:3]
+        is_bool_input = input.dtype == torch.bool
+        if is_bool_input:
+            input = input.float()
+        if input.ndim == 2:
+            result = F.pad(input, [0, N - 1])
+            result = F.unfold(result[:, None, :, None], (T, 1))
+        else:
+            result = input.reshape(B, 1, T, 1, -1)
+            result = F.pad(result, [0, 0, 0, 0, 0, N - 1]).movedim(-1, 0)
+            result = torch.stack([F.unfold(x, (T, 1)) for x in result], dim=-1)
+            result = result.reshape(B, T, N, *input.shape[2:])
+        if is_bool_input:
+            result = result.bool()
+        return result
+
+    expand_backup = torch.Tensor.expand
+    torch.Tensor.expand = expand
+    try:
+        return distribution.expand(torch.Size(target_shape))
     finally:
         torch.Tensor.expand = expand_backup

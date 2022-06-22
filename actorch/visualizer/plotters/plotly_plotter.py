@@ -2,7 +2,7 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Plotly plotter."""
+"""Plotly progress plotter."""
 
 import os
 from argparse import ArgumentParser
@@ -13,7 +13,7 @@ import yaml
 from numpy import ndarray
 from plotly import graph_objects as go
 
-from actorch.utils import get_resource
+from actorch import resources
 from actorch.visualizer.plotters.plotter import Plotter
 
 
@@ -36,7 +36,7 @@ class PlotlyPlotter(Plotter):
         )
         parser.add_argument(
             "--template",
-            default=get_resource("templates/default-template.yml"),
+            default=resources.get("templates/default-template.yml"),
             help="absolute or relative path to a Plotly template file or name of one of Plotly built-in templates",
             dest="template_filepath_or_name",
         )

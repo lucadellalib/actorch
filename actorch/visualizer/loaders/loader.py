@@ -2,7 +2,7 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Loader."""
+"""Progress loader."""
 
 import os
 import re
@@ -22,7 +22,7 @@ __all__ = [
 
 
 class Loader(ABC):
-    """Loader that loads progress data from progress files stored in a directory."""
+    """Load progress data from progress files stored in a directory."""
 
     def load(
         self,
@@ -91,7 +91,7 @@ class Loader(ABC):
 
     @classmethod
     def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
-        """Return a default command line argument parser for method `load`.
+        """Return a default command line argument parser for `load`.
 
         Parameters
         ----------
@@ -103,6 +103,7 @@ class Loader(ABC):
             The default command line argument parser.
 
         """
+        parser_kwargs.setdefault("description", "Load progress data")
         parser = ArgumentParser(**parser_kwargs)
         parser.add_argument(
             "input_dirpath",
@@ -123,6 +124,9 @@ class Loader(ABC):
             help="names of the data series in the progress files that must not be loaded",
         )
         return parser
+
+    def __repr__(self) -> "str":
+        return f"{self.__class__.__name__}()"
 
     @abstractmethod
     def _load_data(self, filepath: "str", **kwargs: "Any") -> "Dict[str, ndarray]":

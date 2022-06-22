@@ -2,16 +2,16 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Plotter."""
+"""Progress plotter."""
 
 import os
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser
-from statistics import NormalDist
 from typing import Any, Dict, Tuple
 
 import numpy as np
 from numpy import ndarray
+from scipy import stats
 from tqdm import tqdm
 
 
@@ -21,7 +21,7 @@ __all__ = [
 
 
 class Plotter(ABC):
-    """Plotter that plots progress data."""
+    """Plot progress data."""
 
     def plot(
         self,
@@ -56,7 +56,7 @@ class Plotter(ABC):
         Raises
         ------
         ValueError
-            If an invalid argument value is provided.
+            If an invalid argument value is given.
         RuntimeError
             If `x_name` is not in the progress data to plot.
 
@@ -75,7 +75,7 @@ class Plotter(ABC):
             )
         x_trials = data.pop(x_name)
         x_name = x_name.replace("/", "_").replace("_", " ").capitalize()
-        num_stddevs = NormalDist().inv_cdf((confidence_level + 1) / 2)
+        num_stddevs = float(stats.norm.ppf((confidence_level + 1) / 2))
         with tqdm(total=len(data)) as progress_bar:
             for y_name, y_trials in data.items():
                 progress_bar.set_description(f"Plotting {y_name}")
@@ -92,9 +92,9 @@ class Plotter(ABC):
                     mask = np.isfinite(x) & np.isfinite(mean)
                     x, mean, stddev = x[mask], mean[mask], stddev[mask]
                     stddev[~np.isfinite(stddev)] = 0.0
-                    mean = self._exp_moving_average(mean, smoothing)
+                    mean = self._exponential_moving_average(mean, smoothing)
                     shift = num_stddevs * np.sqrt(
-                        self._exp_moving_average(stddev ** 2, smoothing)
+                        self._exponential_moving_average(stddev**2, smoothing)
                     )
                     traces[trial_name] = (x, mean, shift)
                 self._plot_traces(
@@ -109,7 +109,7 @@ class Plotter(ABC):
 
     @classmethod
     def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
-        """Return a default command line argument parser for method `plot`.
+        """Return a default command line argument parser for `plot`.
 
         Parameters
         ----------
@@ -121,6 +121,7 @@ class Plotter(ABC):
             The default command line argument parser.
 
         """
+        parser_kwargs.setdefault("description", "Plot progress data")
         parser = ArgumentParser(**parser_kwargs)
         parser.add_argument(
             "--output-dir",
@@ -157,18 +158,21 @@ class Plotter(ABC):
         )
         return parser
 
-    def _exp_moving_average(
+    def _exponential_moving_average(
         self, values: "ndarray", smoothing: "float" = 0.0
     ) -> "ndarray":
         # This is the same smoothing algorithm used by TensorBoard
         # (see https://github.com/tensorflow/tensorboard/blob/2.6/tensorboard/components/vz_line_chart2/line-chart.ts#L714)
         last = values[0]
         output = []
-        for i, value in enumerate(values):
+        for value in values:
             if np.isfinite(value):
                 last = last * smoothing + (1 - smoothing) * value
                 output.append(last)
         return np.array(output)
+
+    def __repr__(self) -> "str":
+        return f"{self.__class__.__name__}()"
 
     @abstractmethod
     def _plot_traces(

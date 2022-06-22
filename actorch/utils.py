@@ -2,9 +2,10 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Runner utilities."""
+"""Common utilities."""
 
 import importlib
+import json
 import os
 import platform
 from datetime import datetime
@@ -13,13 +14,14 @@ from typing import Any, Dict
 
 import GPUtil
 import psutil
-
-from actorch.utils import normalize_byte_size
+import yaml
+from ray.tune.logger import SafeFallbackEncoder
 
 
 __all__ = [
     "get_system_info",
     "import_module",
+    "pretty_print",
 ]
 
 
@@ -48,9 +50,9 @@ def get_system_info() -> "Dict[str, Any]":
     system_info["cpu"] = {
         "physical_cores": psutil.cpu_count(logical=False),
         "total_cores": psutil.cpu_count(logical=True),
-        "min_freq": f"{cpu_freq.min:.2f} MHz",
-        "max_freq": f"{cpu_freq.max:.2f} MHz",
-        "current_freq": f"{cpu_freq.current:.2f} MHz",
+        "min_freq": f"{cpu_freq.min:.2f}MHz",
+        "max_freq": f"{cpu_freq.max:.2f}MHz",
+        "current_freq": f"{cpu_freq.current:.2f}MHz",
         "usage_per_core": {
             f"{i}": f"{p}%"
             for i, p in enumerate(psutil.cpu_percent(percpu=True, interval=1))
@@ -59,9 +61,9 @@ def get_system_info() -> "Dict[str, Any]":
     }
     virtual_memory = psutil.virtual_memory()
     system_info["memory"] = {
-        "total": normalize_byte_size(virtual_memory.total),
-        "available": normalize_byte_size(virtual_memory.available),
-        "used": normalize_byte_size(virtual_memory.used),
+        "total": _format_sizeof(virtual_memory.total, "B", 1024),
+        "available": _format_sizeof(virtual_memory.available, "B", 1024),
+        "used": _format_sizeof(virtual_memory.used, "B", 1024),
         "percentage": f"{virtual_memory.percent}%",
     }
     system_info["gpu"] = {
@@ -69,12 +71,12 @@ def get_system_info() -> "Dict[str, Any]":
             "uuid": gpu.uuid,
             "name": gpu.name,
             "memory": {
-                "total": f"{gpu.memoryTotal} MB",
-                "available": f"{gpu.memoryFree} MB",
-                "used": f"{gpu.memoryUsed} MB",
+                "total": f"{gpu.memoryTotal}MB",
+                "available": f"{gpu.memoryFree}MB",
+                "used": f"{gpu.memoryUsed}MB",
                 "percentage": f"{gpu.load * 100}%",
             },
-            "temperature": f"{gpu.temperature} C",
+            "temperature": f"{gpu.temperature}C",
         }
         for gpu in GPUtil.getGPUs()
     }
@@ -100,3 +102,63 @@ def import_module(path: "str") -> "ModuleType":
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+# Adapted from:
+# https://github.com/tqdm/tqdm/blob/f3fb54eb161a9f5de13352e16a70a9960946605b/tqdm/std.py#L259
+def _format_sizeof(
+    num: "float",
+    suffix: "str" = "",
+    divisor: "float" = 1000.0,
+) -> "str":
+    """Format a number with SI Order of Magnitude prefixes.
+
+    Parameters
+    ----------
+    num:
+        The number.
+    suffix:
+        The post-postfix.
+    divisor:
+        The divisor between prefixes.
+
+    Returns
+    -------
+        The number with Order of Magnitude SI unit postfix.
+
+    """
+    for unit in ["", "k", "M", "G", "T", "P", "E", "Z"]:
+        if abs(num) < 999.5:
+            if abs(num) < 99.95:
+                if abs(num) < 9.995:
+                    return f"{num:1.2f}{unit}{suffix}"
+                return f"{num:2.1f}{unit}{suffix}"
+            return f"{num:3.0f}{unit}{suffix}"
+        num /= divisor
+    return f"{num:3.1f}Y{suffix}"
+
+
+# Adapted from:
+# https://github.com/ray-project/ray/blob/7f1bacc7dc9caf6d0ec042e39499bbf1d9a7d065/python/ray/tune/logger.py#L748
+def pretty_print(result: "Dict[str, Any]") -> "str":
+    """Modified version of `ray.tune.logger.pretty_print`
+    that preserves the key order.
+
+    Parameters
+    ----------
+    result:
+        The result.
+
+    Returns
+    -------
+        The pretty-printed result.
+
+    """
+    result = result.copy()
+    result.update(config=None)
+    result.update(hist_stats=None)
+    output = {k: v for k, v in result.items() if v is not None}
+    cleaned = json.dumps(output, cls=SafeFallbackEncoder)
+    return yaml.safe_dump(
+        json.loads(cleaned), default_flow_style=False, sort_keys=False
+    )

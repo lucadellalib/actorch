@@ -4,15 +4,13 @@
 
 """Rank-based experience replay buffer."""
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Union
 
 import numpy as np
 from numpy import ndarray
 
 from actorch.buffers.proportional_buffer import ProportionalBuffer
-from actorch.registry import register
 from actorch.schedules import Schedule
-from actorch.utils import normalize_byte_size
 
 
 __all__ = [
@@ -20,10 +18,9 @@ __all__ = [
 ]
 
 
-@register
 class RankBasedBuffer(ProportionalBuffer):
-    """Prioritized replay buffer that samples (possibly independent)
-    batched trajectories with probabilities proportional to their ranks.
+    """Prioritized replay buffer that samples (possibly independent) batched
+    experience trajectories with probabilities proportional to their ranks.
 
     References
     ----------
@@ -37,8 +34,8 @@ class RankBasedBuffer(ProportionalBuffer):
         self,
         capacity: "Union[int, float]",
         spec: "Dict[str, Dict[str, Any]]",
-        prioritization: "Optional[Schedule]" = None,
-        bias_correction: "Optional[Schedule]" = None,
+        prioritization: "Union[float, Schedule]" = 1.0,
+        bias_correction: "Union[float, Schedule]" = 0.4,
     ) -> "None":
         """Initialize the object.
 
@@ -51,37 +48,36 @@ class RankBasedBuffer(ProportionalBuffer):
         spec:
             The specification, i.e. a dict that maps names of the values
             to store to dicts with the following key-value pairs:
-            - "shape": the shape of the value to store. Default to ``()``;
+            - "shape": the event shape of the value to store. Default to ``()``;
             - "dtype": the dtype of the value to store. Default to ``np.float32``.
         prioritization:
             The prioritization schedule (`alpha` in the literature;
             0: no prioritization, 1: full prioritization).
-            Default to ``ConstantSchedule(1.0)``.
+            If a number, it is wrapped in a `ConstantSchedule`.
         bias_correction:
             The bias correction schedule (`beta` in the literature;
             0: no correction, 1: full correction).
-            Default to ``ConstantSchedule(0.4)``.
+            If a number, it is wrapped in a `ConstantSchedule`.
 
         """
         super().__init__(capacity, spec, prioritization, bias_correction)
         del self.epsilon
 
     # override
-    def add(self, experience: "Dict[str, ndarray]", terminal: "ndarray") -> "None":
-        super().add(experience, terminal)
+    def _add(
+        self,
+        experience: "Dict[str, ndarray]",
+        terminal: "ndarray",
+    ) -> "None":
+        super()._add(experience, terminal)
         self._priorities[self._idx] = self._max_priority
 
     # override
-    def update_priority(self, idx: "ndarray", priority: "ndarray") -> "None":
-        if ((idx >= self._num_experiences) | (idx < -self._num_experiences)).any():
-            raise IndexError(
-                f"`idx` ({idx}) must be in the integer interval "
-                f"[-{self._num_experiences}, {self._num_experiences})"
-            )
-        if (priority < 0.0).any():
-            raise ValueError(
-                f"`priority` ({priority}) must be in the interval [0, inf)"
-            )
+    def _update_priority(
+        self,
+        idx: "ndarray",
+        priority: "ndarray",
+    ) -> "None":
         # Invalidate priority cache
         self._cache.pop("trajectory_priorities", None)
         self._cache.pop("full_trajectory_priority", None)
@@ -113,6 +109,5 @@ class RankBasedBuffer(ProportionalBuffer):
             f"prioritization: {self.prioritization}, "
             f"bias_correction: {self.bias_correction}, "
             f"num_experiences: {self.num_experiences}, "
-            f"num_full_trajectories: {self.num_full_trajectories}, "
-            f"size: {normalize_byte_size(self.byte_size)})"
+            f"num_full_trajectories: {self.num_full_trajectories})"
         )

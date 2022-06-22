@@ -7,10 +7,10 @@
 from abc import abstractmethod
 from typing import Dict, Tuple
 
-from torch import Tensor
+from torch import Size, Tensor
 
 from actorch.models.model import Model
-from actorch.utils import broadcast_cat
+from actorch.models.modules import BroadcastCat
 
 
 __all__ = [
@@ -22,24 +22,26 @@ class Hydra(Model):
     """Hydra model, consisting of multiple input tails,
     a shared torso and multiple output heads.
 
-      Input 1  ....  Input n
+      input 1   ...  input n
          |              |
-     ____|___        ___|____
-    | Tail 1 | .... | Tail n |
+    .____|___.      .___|____.
+    | tail 1 |  ... | tail n |
     |________|      |________|
+         |              |
          |______________|
                  |
-              ___|___
-             | Torso |
+             .___|___.
+             | torso |
              |_______|
                  |
-          _______|______
-     ____|___        ___|____
-    | Head 1 | .... | Head m |
+         ._______|______.
+         |              |
+    .____|___.      .___|____.
+    | head 1 |  ... | head m |
     |________|      |________|
          |              |
          |              |
-      Output 1 .... Output m
+      output 1  ...  output m
 
     """
 
@@ -70,9 +72,9 @@ class Hydra(Model):
 
     def _setup_tails(self) -> "None":
         """Setup the model tails."""
-        pass
+        self.aggregate = BroadcastCat(list(self.in_shapes.values()))
 
-    def _setup_torso(self, in_shape: "Tuple[int, ...]") -> "None":
+    def _setup_torso(self, in_shape: "Size") -> "None":
         """Setup the model torso.
 
         Parameters
@@ -83,7 +85,7 @@ class Hydra(Model):
         """
         pass
 
-    def _setup_heads(self, in_shape: "Tuple[int, ...]") -> "None":
+    def _setup_heads(self, in_shape: "Size") -> "None":
         """Setup the model heads.
 
         Parameters
@@ -123,8 +125,12 @@ class Hydra(Model):
             - The output, shape: ``[*B, *...]``;
             - the possibly updated states.
 
+        Warnings
+        --------
+        Batch dimensions of `states` must be moved to the front.
+
         """
-        return broadcast_cat([*inputs.values()], mask.ndim), states
+        return self.aggregate(list(inputs.values())), states
 
     def _forward_torso(
         self,
@@ -152,6 +158,10 @@ class Hydra(Model):
         -------
             - The output, shape: ``[*B, *...]``;
             - the possibly updated states.
+
+        Warnings
+        --------
+        Batch dimensions of `states` must be moved to the front.
 
         """
         return input, states
@@ -185,6 +195,10 @@ class Hydra(Model):
               with the given `out_shapes` initialization argument, shape of
               ``outputs[name]``: ``[*B, *out_shapes[name]]``;
             - the possibly updated states.
+
+        Warnings
+        --------
+        Batch dimensions of `states` must be moved to the front.
 
         """
         raise NotImplementedError

@@ -29,16 +29,16 @@ compute_trajectory_priorities__doc__,
                                                                      "\n"
 "Parameters"                                                         "\n"
 "----------"                                                         "\n"
+"batch_size:"                                                        "\n"
+"    The buffer batch size."                                         "\n"
+"num_experiences:"                                                   "\n"
+"    The number of experiences stored in the buffer."                "\n"
 "idx:"                                                               "\n"
 "    The buffer current index, shape: ``[batch_size]``."             "\n"
 "terminals:"                                                         "\n"
 "    The buffer terminals, shape: ``[num_experiences]``."            "\n"
 "priorities"                                                         "\n"
 "    The buffer priorities, shape: ``[num_experiences]``."           "\n"
-"num_experiences:"                                                   "\n"
-"    The number of experiences stored in the buffer."                "\n"
-"batch_size:"                                                        "\n"
-"    The buffer batch size."                                         "\n"
                                                                      "\n"
 "Returns"                                                            "\n"
 "-------"                                                            "\n"
@@ -48,20 +48,20 @@ compute_trajectory_priorities__doc__,
 static PyArrayObject *
 compute_trajectory_priorities(PyObject *self, PyObject *args)
 {
+    int64_t batch_size, num_experiences;
     PyArrayObject *idx_obj, *terminals_obj, *priorities_obj;
-    int64_t num_experiences, batch_size;
 
     if (!PyArg_ParseTuple(
         args,
-        "O!O!O!ll",
+        "llO!O!O!",
+        &batch_size,
+        &num_experiences,
         &PyArray_Type,
         &idx_obj,
         &PyArray_Type,
         &terminals_obj,
         &PyArray_Type,
-        &priorities_obj,
-        &num_experiences,
-        &batch_size
+        &priorities_obj
     )) return NULL;
 
     const int64_t *idx = (int64_t *)idx_obj->data;
@@ -69,7 +69,8 @@ compute_trajectory_priorities(PyObject *self, PyObject *args)
     const float *priorities = (float *)priorities_obj->data;
 
     float *trajectory_priorities = (float *)malloc(num_experiences * sizeof(float));
-    int64_t curr_idx[batch_size], prev[batch_size];
+    int64_t *curr_idx = (int64_t *)malloc(batch_size * sizeof(int64_t));
+    int64_t *prev = (int64_t *)malloc(batch_size * sizeof(int64_t));
     for (int64_t i = 0; i < batch_size; i++)
     {
         prev[i] = trajectory_priorities[idx[i]] = priorities[idx[i]];
@@ -98,6 +99,8 @@ compute_trajectory_priorities(PyObject *self, PyObject *args)
     const PyObject *result = Py_BuildValue("O", py_array);
     const PyObject *capsule = PyCapsule_New(trajectory_priorities, NULL, cleanup);
     PyArray_SetBaseObject((PyArrayObject *)result, capsule);
+    free(curr_idx);
+    free(prev);
     return result;
 }
 

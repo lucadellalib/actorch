@@ -59,7 +59,7 @@ def _kl_finite_finite(p: "Finite", q: "Finite") -> "Tensor":
 
 
 # Adapted from:
-# https://github.com/pyro-ppl/pyro/blob/1.6.0/pyro/distributions/kl.py#L24
+# https://github.com/pyro-ppl/pyro/blob/6fa4d8b2810dff9b3bcc4b7e994029cdc818520f/pyro/distributions/kl.py#L24
 @register_kl(Independent, Independent)
 def _kl_independent_independent(p: "Independent", q: "Independent") -> "Tensor":
     # Handle nested independent distributions

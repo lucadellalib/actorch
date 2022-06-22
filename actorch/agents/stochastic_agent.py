@@ -12,7 +12,7 @@ from numpy import ndarray
 from torch import device
 
 from actorch.agents.agent import Agent
-from actorch.registry import register
+from actorch.networks import PolicyNetwork
 
 
 __all__ = [
@@ -20,13 +20,12 @@ __all__ = [
 ]
 
 
-@register
 class StochasticAgent(Agent):
     """Agent that returns a stochastic prediction."""
 
     def __init__(
         self,
-        policy: "Policy",
+        policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
         is_batched: "bool" = False,
@@ -37,8 +36,8 @@ class StochasticAgent(Agent):
 
         Parameters
         ----------
-        policy:
-            The policy.
+        policy_network:
+            The policy network.
         observation_space:
             The (possibly batched) observation space.
         action_space:
@@ -65,9 +64,9 @@ class StochasticAgent(Agent):
             )
         self.num_random_timesteps = int(num_random_timesteps)
         self._num_elapsed_timesteps = 0
-        self._policy_state = None
+        self._policy_network_state = None
         super().__init__(
-            policy,
+            policy_network,
             observation_space,
             action_space,
             is_batched,
@@ -76,8 +75,8 @@ class StochasticAgent(Agent):
 
     # override
     def _reset(self, mask: "ndarray") -> "None":
-        if self._policy_state is not None:
-            self._policy_state[mask] = 0.0
+        if self._policy_network_state is not None:
+            self._policy_network_state[mask] = 0.0
 
     # override
     def _predict(self, flat_observation: "ndarray") -> "Tuple[ndarray, ndarray]":
@@ -95,14 +94,12 @@ class StochasticAgent(Agent):
         flat_observation = flat_observation[:, None, ...]
         input = torch.as_tensor(flat_observation, device=self.device)
         with torch.no_grad():
-            _, self._policy_state = self.policy(input, self._policy_state)
-        prediction = self.policy.distribution.sample()
-        log_prob = self.policy.distribution.log_prob(prediction)
-        flat_action = self.policy.decode(prediction)
-        flat_action, log_prob = (
-            flat_action.to("cpu").numpy(),
-            log_prob.to("cpu").numpy(),
-        )
+            _, self._policy_network_state = self.policy_network(
+                input, self._policy_network_state
+            )
+        sample = self.policy_network.distribution.sample()
+        flat_action = self.policy_network.predict(sample).to("cpu").numpy()
+        log_prob = self.policy_network.distribution.log_prob(sample).to("cpu").numpy()
         # Remove temporal axis
         flat_action, log_prob = flat_action[:, 0, ...], log_prob[:, 0, ...]
         return flat_action, log_prob
@@ -110,7 +107,7 @@ class StochasticAgent(Agent):
     def __repr__(self) -> "str":
         return (
             f"{self.__class__.__name__}"
-            f"(policy: {self.policy}, "
+            f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
             f"is_batched: {self.is_batched}, "

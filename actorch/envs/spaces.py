@@ -52,7 +52,7 @@ class Flat(spaces.Box):
         low, high = self.flatten(low), self.flatten(high)
         unnested_space = unnest_space(space)
         self._shape_dict, self._type_dict = {}, {}
-        for i, (key, space) in enumerate(unnested_space.items()):
+        for (key, space) in unnested_space.items():
             x = np.array(space.sample(), copy=False, ndmin=1)
             self._shape_dict[key] = x.shape
             self._type_dict[key] = type(space)

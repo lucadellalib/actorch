@@ -2,7 +2,7 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Matplotlib plotter."""
+"""Matplotlib progress plotter."""
 
 import os
 from argparse import ArgumentParser
@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib import rc
 from numpy import ndarray
 
-from actorch.utils import get_resource
+from actorch import resources
 from actorch.visualizer.plotters.plotter import Plotter
 
 
@@ -49,7 +49,7 @@ class MatplotlibPlotter(Plotter):
         )
         parser.add_argument(
             "--style",
-            default=get_resource("styles/default-style.mplstyle"),
+            default=resources.get("styles/default-style.mplstyle"),
             help="absolute or relative path to a Matplotlib style file or name of one of Matplotlib built-in styles",
             dest="style_filepath_or_name",
         )

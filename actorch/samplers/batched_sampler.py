@@ -5,13 +5,14 @@
 """Batched experience sampler."""
 
 import time
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy import ndarray
 
 from actorch.agents import Agent
 from actorch.envs import BatchedEnv
+from actorch.samplers.callbacks import Callback
 from actorch.samplers.sampler import Sampler
 
 
@@ -27,7 +28,7 @@ class BatchedSampler(Sampler):
         self,
         env: "BatchedEnv",
         agent: "Agent",
-        callback_fns: "Optional[Dict[str, Callable[..., None]]]" = None,
+        callbacks: "Optional[Sequence[Callback]]" = None,
     ) -> "None":
         """Initialize the object.
 
@@ -37,38 +38,24 @@ class BatchedSampler(Sampler):
             The batched environment to sample batched experiences from.
         agent:
             The agent that interacts with the batched environment.
-        callback_fns:
-            The callback functions, i.e. a dict with the following key-value pairs:
-            - "on_episode_start_fn": the function called after each episode start.
-                                     It receives as arguments the batched environment,
-                                     the agent, the sampling statistics, and the batch
-                                     element index of the started episode;
-            - "on_episode_step_fn":  the function called after each episode step.
-                                     It receives as arguments the batched environment,
-                                     the agent, the sampling statistics, the batched
-                                     auxiliary diagnostic information, and the batch
-                                     element index of the stepped episode;
-            - "on_episode_end_fn":   the function called after each episode end.
-                                     It receives as arguments the batched environment,
-                                     the agent, the sampling statistics, and the batch
-                                     element index of the terminated episode.
-            Default to ``{}``.
+        callbacks:
+            The experience sampler callbacks.
+            Default to ``[]``.
 
         Raises
         ------
         TypeError
-            If `env` is not instance of `BatchedEnv`.
-
-        See Also
-        --------
-        Sampler.stats
+            If `env` is not instance of `actorch.envs.BatchedEnv`.
 
         """
         if not isinstance(env, BatchedEnv):
-            raise TypeError(f"`env` ({env}) must be instance of {BatchedEnv}")
+            raise TypeError(
+                f"`env` ({env}) must be instance of "
+                f"`{BatchedEnv.__module__}.{BatchedEnv.__name__}`"
+            )
         self._batch_size = len(env)
         try:
-            super().__init__(env, agent, callback_fns)
+            super().__init__(env, agent, callbacks)
         except TypeError:
             pass
 
@@ -92,25 +79,25 @@ class BatchedSampler(Sampler):
         ----------
         num_timesteps:
             The number of timesteps to sample.
-            Must be ``None`` if `num_episodes` is provided.
+            Must be None if `num_episodes` is given.
         num_episodes:
             The number of episodes to sample.
-            Must be ``None`` if `num_timesteps` is provided.
+            Must be None if `num_timesteps` is given.
         render:
             True to render the environment, False otherwise.
 
         Yields
         ------
-            The sampled batched experience, i.e. a dict with the
-            following key-value pairs:
-            - "observation":      the batched observation;
-            - "action":           the batched action;
-            - "log_prob":         the batched action log probability;
-            - "reward":           the batched reward;
-            - "next_observation": the batched next observation;
-            - "done":             the batched end-of-episode flag;
-            the batched terminal flag (might differ from `done` if
-            the environment has a time limit).
+            - The sampled batched experience, i.e. a dict with the
+              following key-value pairs:
+              - "observation":      the batched observation;
+              - "action":           the batched action;
+              - "log_prob":         the batched action log probability;
+              - "reward":           the batched reward;
+              - "next_observation": the batched next observation;
+              - "done":             the batched end-of-episode flag;
+            - the batched terminal flag (might differ from `done` if
+              the environment has a time limit).
 
         Warnings
         --------
@@ -128,10 +115,6 @@ class BatchedSampler(Sampler):
         render: "bool",
     ) -> "Iterator[Tuple[Dict[str, Any], ndarray]]":
         num_sampled_timesteps, num_sampled_episodes = 0, 0
-        # Default callbacks
-        on_episode_start_fn = self.callback_fns.get("on_episode_start_fn")
-        on_episode_step_fn = self.callback_fns.get("on_episode_step_fn")
-        on_episode_end_fn = self.callback_fns.get("on_episode_end_fn")
         while (
             num_sampled_timesteps < num_timesteps
             and num_sampled_episodes < num_episodes
@@ -143,10 +126,10 @@ class BatchedSampler(Sampler):
                     render_time = time.time()
                     self.env.render()
                     self._stats["render_time_ms"] += (time.time() - render_time) * 1000
-                # Callback
-                if on_episode_start_fn:
-                    for i in range(self._batch_size):
-                        on_episode_start_fn(self.env, self.agent, self._stats, i)
+                # Callbacks
+                for callback in self.callbacks:
+                    for _ in range(self._batch_size):
+                        callback.on_episode_start(self._stats)
             observation = self._next_observation
             inference_time = time.time()
             action, log_prob = self.agent(observation)
@@ -164,10 +147,10 @@ class BatchedSampler(Sampler):
             self._cumreward += reward
             num_sampled_timesteps += self._batch_size
             self._stats["num_timesteps"] = num_sampled_timesteps
-            # Callback
-            if on_episode_step_fn:
+            # Callbacks
+            for callback in self.callbacks:
                 for i in range(self._batch_size):
-                    on_episode_step_fn(self.env, self.agent, self._stats, info, i)
+                    callback.on_episode_step(self._stats, info[i])
 
             if terminal.any():
                 self._next_observation = self.env.reset(terminal)
@@ -186,10 +169,12 @@ class BatchedSampler(Sampler):
                     info[i].get("TimeLimit.truncated", not terminal[i])
                     for i in range(self._batch_size)
                 )
-                # Callback
-                if on_episode_end_fn:
-                    for i in np.where(terminal)[0]:
-                        on_episode_end_fn(self.env, self.agent, self._stats, i)
+                # Callbacks
+                if self.callbacks:
+                    terminal_idxes = np.where(terminal)[0]
+                    for callback in self.callbacks:
+                        for _ in terminal_idxes:
+                            callback.on_episode_end(self._stats)
 
             experience = {
                 "observation": observation,

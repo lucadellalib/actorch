@@ -173,9 +173,9 @@ class Schedule(ABC):
         return f"{self.__class__.__name__}(batch_size: {self.batch_size})"
 
     def _reset(self, mask: "ndarray") -> "None":
-        """See documentation of method `reset`."""
+        """See documentation of `reset`."""
         pass
 
     def _step(self, mask: "ndarray") -> "None":
-        """See documentation of method `step`."""
+        """See documentation of `step`."""
         pass

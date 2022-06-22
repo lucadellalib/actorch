@@ -9,9 +9,9 @@ rem If `conda` is not already available on the system (e.g. through Anaconda), M
 
 set PATH=%PATH%;%HOMEDRIVE%%HOMEPATH%\miniconda3\condabin\
 
-set root_dir=%~dp0..
-set current_dir=%CD%
-for /f "tokens=2 delims=: " %%i in (%root_dir%\bin\config.yml) do set env_name=%%i
+set root_dirpath=%~dp0..
+set curr_dirpath=%CD%
+for /f "tokens=2 delims=: " %%i in (%root_dirpath%\bin\config.yml) do set env_name=%%i
 set platform=windows
 
 where conda >nul || (
@@ -21,20 +21,24 @@ where conda >nul || (
   del %~dp0Miniconda3-latest-Windows-x86_64.exe
 )
 
-set PIP_SRC=%root_dir%\packages
+set PIP_SRC=%root_dirpath%
 conda env list | findstr %env_name% >nul && (
   echo Updating virtual environment...
-  call conda env update -n %env_name% -f %root_dir%\conda\environment-%platform%.yml
+  call conda env update -n %env_name% -f %root_dirpath%\conda\environment-%platform%.yml
 ) || (
   echo Installing virtual environment...
-  call conda env create -n %env_name% -f %root_dir%\conda\environment-%platform%.yml --force
+  call conda env create -n %env_name% -f %root_dirpath%\conda\environment-%platform%.yml --force
 )
 
-echo Installing git commit hook...
+echo Installing ACTorch...
+cd %root_dirpath%
 call conda activate %env_name%
-cd %root_dir%
-call pre-commit install -f
-cd %current_dir%
+call pip install -e .[dev]
+if exist .git\ (
+  echo Installing git commit hook...
+  call pre-commit install -f
+)
 call conda deactivate
+cd %curr_dirpath%
 
 echo Done!

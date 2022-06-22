@@ -12,8 +12,8 @@ from numpy import ndarray
 from torch import device
 
 from actorch.agents.deterministic_agent import DeterministicAgent
-from actorch.registry import register
-from actorch.schedules import LinearSchedule, Schedule
+from actorch.networks import PolicyNetwork
+from actorch.schedules import ConstantSchedule, LinearSchedule, Schedule
 
 
 __all__ = [
@@ -21,7 +21,6 @@ __all__ = [
 ]
 
 
-@register
 class EpsilonGreedyAgent(DeterministicAgent):
     """Agent that returns a random prediction with probability `epsilon`
     (annealed over time) and a deterministic one with probability `1 - epsilon`.
@@ -30,19 +29,19 @@ class EpsilonGreedyAgent(DeterministicAgent):
 
     def __init__(
         self,
-        policy: "Policy",
+        policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
         is_batched: "bool" = False,
-        epsilon: "Optional[Schedule]" = None,
+        epsilon: "Optional[Union[float, Schedule]]" = None,
         device: "Optional[Union[device, str]]" = "cpu",
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
-        policy:
-            The policy.
+        policy_network:
+            The policy network.
         observation_space:
             The (possibly batched) observation space.
         action_space:
@@ -52,14 +51,20 @@ class EpsilonGreedyAgent(DeterministicAgent):
             are batched, False otherwise.
         epsilon:
             The epsilon annealing schedule.
+            If a number, it is wrapped in a `ConstantSchedule`.
             Default to ``LinearSchedule(1., 0.05, int(1e5))``.
         device:
             The device.
 
         """
-        self.epsilon = epsilon or LinearSchedule(1.0, 0.05, int(1e5))
+        if epsilon is None:
+            self.epsilon = LinearSchedule(1.0, 0.05, int(1e5))
+        else:
+            self.epsilon = (
+                epsilon if isinstance(epsilon, Schedule) else ConstantSchedule(epsilon)
+            )
         super().__init__(
-            policy,
+            policy_network,
             observation_space,
             action_space,
             is_batched,
@@ -89,7 +94,7 @@ class EpsilonGreedyAgent(DeterministicAgent):
     def __repr__(self) -> "str":
         return (
             f"{self.__class__.__name__}"
-            f"(policy: {self.policy}, "
+            f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
             f"is_batched: {self.is_batched}, "

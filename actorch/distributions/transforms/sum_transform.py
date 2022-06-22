@@ -6,12 +6,12 @@
 
 from typing import Any, Tuple
 
+import torch
 from torch import Tensor
 from torch.distributions import constraints
 from torch.distributions.constraints import Constraint
 
 from actorch.distributions.transforms.maskable_transform import MaskableTransform
-from actorch.registry import register
 
 
 __all__ = [
@@ -19,9 +19,8 @@ __all__ = [
 ]
 
 
-@register
 class SumTransform(MaskableTransform):
-    """Sum the input tensor along one of its event dimensions."""
+    """Sum a tensor along one of its event dimensions."""
 
     is_constant_jacobian = False
     """Whether the Jacobian matrix is constant (i.e. the transform is affine)."""
@@ -51,11 +50,11 @@ class SumTransform(MaskableTransform):
             raise IndexError(
                 f"`dim` ({dim}) must be in the integer interval [-{len(in_shape)}, {len(in_shape)})"
             )
-        self.in_shape = in_shape
+        self.in_shape = torch.Size(in_shape)
         self.dim = dim = int(dim) % len(in_shape)
         out_shape = list(in_shape)
         del out_shape[dim]
-        self._out_shape = tuple(out_shape)
+        self._out_shape = torch.Size(out_shape)
         super().__init__(cache_size)
 
     # override

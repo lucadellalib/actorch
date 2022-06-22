@@ -20,7 +20,6 @@ from torch.distributions.constraints import Constraint
 
 from actorch.distributions.transforms import SumTransform
 from actorch.distributions.utils import is_affine, is_discrete
-from actorch.registry import register
 
 
 __all__ = [
@@ -28,15 +27,10 @@ __all__ = [
 ]
 
 
-@register
 class TransformedDistribution(TorchTransformedDistribution):
     """Extended version of `torch.distributions.TransformedDistribution` that
     implements additional properties and methods (e.g. `mean`,`stddev`, entropy`,
     etc.) and handles discrete base distributions correctly.
-
-    Warnings
-    --------
-    TODO `torch.distributions.TransformedDistribution`.
 
     """
 
@@ -72,7 +66,7 @@ class TransformedDistribution(TorchTransformedDistribution):
     # override
     @property
     def variance(self) -> "Tensor":
-        return self.stddev ** 2
+        return self.stddev**2
 
     # override
     @property
@@ -208,7 +202,7 @@ class TransformedDistribution(TorchTransformedDistribution):
                 shift = transform(torch.zeros_like(x))
                 return transform(x) - shift
             if isinstance(transform, SumTransform):
-                return transform(x ** 2).sqrt()
+                return transform(x**2).sqrt()
             raise NotImplementedError
 
         # Avoid reference cycle

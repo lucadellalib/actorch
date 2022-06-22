@@ -4,7 +4,7 @@
 
 """Decaying left truncated variance bonus agent."""
 
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -16,9 +16,8 @@ from torch.distributions import Distribution
 from actorch.agents.deterministic_agent import DeterministicAgent
 from actorch.agents.stochastic_agent import StochasticAgent
 from actorch.distributions import Finite
-from actorch.registry import register
-from actorch.schedules import LambdaSchedule, Schedule
-from actorch.utils import is_identical
+from actorch.networks import PolicyNetwork
+from actorch.schedules import ConstantSchedule, LambdaSchedule, Schedule
 
 
 __all__ = [
@@ -54,10 +53,11 @@ def left_truncated_variance_quantile(distribution: "Finite") -> "Tensor":
            URL: https://arxiv.org/abs/1905.06125
 
     """
-    if not is_identical(distribution.probs, dim=-1):
+    probs = distribution.probs
+    if not (probs == probs.select(-1, 0).unsqueeze(-1)).all(dim=-1).all():
         raise ValueError(
-            f"`distribution.probs` ({distribution.probs}) "
-            f"must be identical along the last dimension"
+            f"`distribution.probs` ({probs}) must "
+            "be identical along the last dimension"
         )
     num_atoms = distribution.atoms.shape[-1]
     median_idx = num_atoms // 2
@@ -68,7 +68,6 @@ def left_truncated_variance_quantile(distribution: "Finite") -> "Tensor":
     return left_truncated_variance
 
 
-@register
 class DLTVBonusAgent(StochasticAgent, DeterministicAgent):
     """Agent that adds a decaying left truncated variance bonus to the prediction.
 
@@ -83,11 +82,11 @@ class DLTVBonusAgent(StochasticAgent, DeterministicAgent):
 
     def __init__(
         self,
-        policy: "Policy",
+        policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
         is_batched: "bool" = False,
-        suppression_coeff: "Optional[Schedule]" = None,
+        suppression_coeff: "Optional[Union[float, Schedule]]" = None,
         left_truncated_variance_fn: "Callable[[Distribution], Tensor]" = None,
         num_random_timesteps: "int" = 0,
         device: "Optional[Union[device, str]]" = "cpu",
@@ -96,8 +95,8 @@ class DLTVBonusAgent(StochasticAgent, DeterministicAgent):
 
         Parameters
         ----------
-        policy:
-            The policy.
+        policy_network:
+            The policy network.
         observation_space:
             The (possibly batched) observation space.
         action_space:
@@ -106,15 +105,15 @@ class DLTVBonusAgent(StochasticAgent, DeterministicAgent):
             True if `observation_space` and `action_space`
             are batched, False otherwise.
         suppression_coeff:
-            The suppression coefficient schedule
-            (`c_t` in the literature).
+            The suppression coefficient schedule (`c_t` in the literature).
+            If a number, it is wrapped in a `ConstantSchedule`.
             Default to ``LambdaSchedule(
                 lambda t: 50 * np.sqrt(np.log(t + 2) / (t + 2))
             )``.
         left_truncated_variance_fn:
             The function that computes the left truncated variance
-            of a distribution. This function receives as an argument
-            the distribution and returns its left truncated variance.
+            of a distribution. It receives as an argument the
+            distribution and returns its left truncated variance.
             Default to ``left_truncated_variance_quantile``.
         num_random_timesteps:
             The number of initial timesteps for which
@@ -123,26 +122,29 @@ class DLTVBonusAgent(StochasticAgent, DeterministicAgent):
             The device.
 
         """
-        self.suppression_coeff = suppression_coeff or LambdaSchedule(
-            lambda t: 50 * np.sqrt(np.log(t + 2) / (t + 2))
-        )
+        if suppression_coeff is None:
+            self.suppression_coeff = LambdaSchedule(
+                lambda t: 50 * np.sqrt(np.log(t + 2) / (t + 2))
+            )
+        else:
+            self.suppression_coeff = (
+                suppression_coeff
+                if isinstance(suppression_coeff, Schedule)
+                else ConstantSchedule(suppression_coeff)
+            )
         self.left_truncated_variance_fn = (
             left_truncated_variance_fn or left_truncated_variance_quantile
         )
         StochasticAgent.__init__(
             self,
-            policy,
+            policy_network,
             observation_space,
             action_space,
             is_batched,
             num_random_timesteps,
             device,
         )
-
-    # override
-    @property
-    def schedules(self) -> "List[Schedule]":
-        return [self.suppression_coeff]
+        self._schedules = {"suppression_coeff": self.suppression_coeff}
 
     # override
     def _stochastic_predict(
@@ -157,13 +159,15 @@ class DLTVBonusAgent(StochasticAgent, DeterministicAgent):
         flat_observation = flat_observation[:, None, ...]
         input = torch.as_tensor(flat_observation, device=self.device)
         with torch.no_grad():
-            _, self._policy_state = self.policy(input, self._policy_state)
-        prediction = self.policy.distribution.deterministic_prediction
+            _, self._policy_network_state = self.policy_network(
+                input, self._policy_network_state
+            )
+        sample = self.policy_network.sample_fn(self.policy_network.distribution)
         left_truncated_variance = self.left_truncated_variance_fn(
-            self.policy.distribution
+            self.policy_network.distribution
         )
         bonus = suppression_coeff * left_truncated_variance
-        flat_action = self.policy.decode(prediction + bonus).to("cpu").numpy()
+        flat_action = self.policy_network.predict(sample + bonus).to("cpu").numpy()
         # Remove temporal axis
         flat_action = flat_action[:, 0, ...]
         log_prob = np.zeros(len(flat_action))
@@ -172,7 +176,7 @@ class DLTVBonusAgent(StochasticAgent, DeterministicAgent):
     def __repr__(self) -> "str":
         return (
             f"{self.__class__.__name__}"
-            f"(policy: {self.policy}, "
+            f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
             f"is_batched: {self.is_batched}, "

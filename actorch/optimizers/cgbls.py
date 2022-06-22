@@ -13,8 +13,6 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 import torch
 from torch import Tensor, optim
 
-from actorch.registry import register
-
 
 __all__ = [
     "CGBLS",
@@ -24,11 +22,10 @@ __all__ = [
 _LOGGER = logging.getLogger(__name__)
 
 
-@register
 class CGBLS(optim.Optimizer):
     """Conjugate gradient backtracking line search optimizer.
 
-    Perform constrained optimization via backtracking line search.
+    Perform constrained optimization through backtracking line search.
     The search direction is computed using the conjugate gradient method,
     which gives `x = A^(-1) g`, where `A` is a second order approximation
     of the constraint and `g` the gradient of the loss function.
@@ -45,7 +42,7 @@ class CGBLS(optim.Optimizer):
         self,
         params: "Union[Iterable[Tensor], Iterable[Dict[str, Any]]]",
         max_constraint: "float",
-        cg_iters: "int" = 10,
+        num_cg_iters: "int" = 10,
         max_backtracks: "int" = 15,
         backtrack_ratio: "float" = 0.8,
         hvp_reg_coeff: "float" = 1e-5,
@@ -60,7 +57,7 @@ class CGBLS(optim.Optimizer):
             The parameters to optimize.
         max_constraint:
             The maximum constraint value.
-        cg_iters:
+        num_cg_iters:
             The number of conjugate gradient iterations for `A^(-1) g` computation.
         max_backtracks:
             The maximum number of backtracking line search iterations.
@@ -77,12 +74,12 @@ class CGBLS(optim.Optimizer):
         Raises
         ------
         ValueError
-            If an invalid argument value is provided.
+            If an invalid argument value is given.
 
         """
-        if cg_iters < 1 or not float(cg_iters).is_integer():
+        if num_cg_iters < 1 or not float(num_cg_iters).is_integer():
             raise ValueError(
-                f"`cg_iters` ({cg_iters}) must be in the integer interval [1, inf)"
+                f"`num_cg_iters` ({num_cg_iters}) must be in the integer interval [1, inf)"
             )
         if max_backtracks < 1 or not float(max_backtracks).is_integer():
             raise ValueError(
@@ -98,12 +95,12 @@ class CGBLS(optim.Optimizer):
             )
         if epsilon <= 0.0:
             raise ValueError(f"`epsilon` ({epsilon}) must be in the interval (0, inf)")
-        cg_iters = int(cg_iters)
+        num_cg_iters = int(num_cg_iters)
         max_backtracks = int(max_backtracks)
 
         defaults = {
             "max_constraint": max_constraint,
-            "cg_iters": cg_iters,
+            "num_cg_iters": num_cg_iters,
             "max_backtracks": max_backtracks,
             "backtrack_ratio": backtrack_ratio,
             "hvp_reg_coeff": hvp_reg_coeff,
@@ -124,10 +121,10 @@ class CGBLS(optim.Optimizer):
         Parameters
         ----------
         loss_fn:
-            The function that computes the loss, i.e. a function that receives
+            The function that computes the loss. It receives
             no arguments and returns the loss value.
         constraint_fn:
-            The function that computes the constraint, i.e. a function that receives
+            The function that computes the constraint. It receives
             no arguments and returns the constraint value.
 
         Returns
@@ -153,7 +150,7 @@ class CGBLS(optim.Optimizer):
 
             # Compute step direction
             step_dir = self._conjugate_gradient(
-                Ax_fn, flat_loss_grads, group["cg_iters"]
+                Ax_fn, flat_loss_grads, group["num_cg_iters"]
             )
 
             # Replace NaN with 0
@@ -205,8 +202,8 @@ class CGBLS(optim.Optimizer):
         Returns
         -------
             The function that computes the Hessian-vector product.
-            This function receives as an argument the vector to be multiplied
-            with the Hessian and returns the corresponding Hessian-vector product.
+            It receives as an argument the vector to be multiplied with the
+            Hessian and returns the corresponding Hessian-vector product.
 
         References
         ----------
@@ -220,7 +217,7 @@ class CGBLS(optim.Optimizer):
             f = fn()
         f_grads = torch.autograd.grad(f, params, create_graph=True)
 
-        def eval_fn(vector: "Tensor") -> "Tensor":
+        def evaluation_fn(vector: "Tensor") -> "Tensor":
             """The evaluation function.
 
             Parameters
@@ -258,13 +255,13 @@ class CGBLS(optim.Optimizer):
             flat_output = torch.cat([h.flatten() for h in hvp])
             return flat_output + hvp_reg_coeff * vector
 
-        return eval_fn
+        return evaluation_fn
 
     def _conjugate_gradient(
         self,
         Ax_fn: "Callable[[Tensor], Tensor]",
         b: "Tensor",
-        cg_iters: "int" = 10,
+        num_cg_iters: "int" = 10,
         residual_tol: "float" = 1e-10,
     ) -> "Tensor":
         """Use conjugate gradient method to solve `Ax = b`.
@@ -273,18 +270,18 @@ class CGBLS(optim.Optimizer):
         ----------
         Ax_fn:
             The function that computes the Hessian-vector product.
-            This function receives as an argument the vector to be multiplied
-            with the Hessian and returns the corresponding Hessian-vector product.
+            It receives as an argument the vector to be multiplied with the
+            Hessian and returns the corresponding Hessian-vector product.
         b:
             Right-hand side of the equation to solve.
-        cg_iters:
+        num_cg_iters:
             The number of conjugate gradient iterations for `A^(-1) b` computation.
         residual_tol:
             The tolerance for convergence.
 
         Returns
         -------
-            The solution `x*` for equation `Ax = b`.
+            The solution `x_star` for equation `Ax = b`.
 
         References
         ----------
@@ -298,7 +295,7 @@ class CGBLS(optim.Optimizer):
         x = torch.zeros_like(b)
         r_dot_r = r.dot(r)
 
-        for _ in range(cg_iters):
+        for _ in range(num_cg_iters):
             z = Ax_fn(p)
             v = r_dot_r / p.dot(z)
             x += v * p
@@ -332,10 +329,10 @@ class CGBLS(optim.Optimizer):
         descent_step:
             The descent step.
         loss_fn:
-            The function that computes the loss, i.e. a function that receives
+            The function that computes the loss. It receives
             no arguments and returns the loss value.
         constraint_fn:
-            The function that computes the constraint, i.e. a function that receives
+            The function that computes the constraint. It receives
             no arguments and returns the constraint value.
         max_constraint:
             The maximum constraint value.
@@ -376,9 +373,7 @@ class CGBLS(optim.Optimizer):
 
         loss, constraint = 0.0, 0.0
         for ratio in ratios:
-            for i, (step, prev_param, param) in enumerate(
-                zip(descent_steps, prev_params, params)
-            ):
+            for i, (step, prev_param) in enumerate(zip(descent_steps, prev_params)):
                 step = ratio * step
                 new_param = prev_param - step
                 params[i] = new_param

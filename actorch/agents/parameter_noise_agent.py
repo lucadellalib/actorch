@@ -4,7 +4,6 @@
 
 """Parameter noise agent."""
 
-from copy import deepcopy
 from typing import Callable, Optional, Tuple, Union
 
 import torch
@@ -12,9 +11,11 @@ import torch.nn.functional as F
 from gym.spaces import Space
 from numpy import ndarray
 from torch import device
+from torch.distributions import Distribution
 
 from actorch.agents.deterministic_agent import DeterministicAgent
 from actorch.agents.stochastic_agent import StochasticAgent
+from actorch.networks import PolicyNetwork
 
 
 __all__ = [
@@ -25,8 +26,8 @@ __all__ = [
 
 
 def policy_distance_ddpg(
-    policy: "Policy",
-    noisy_policy: "Policy",
+    policy: "Distribution",
+    noisy_policy: "Distribution",
 ) -> "float":
     """Compute the DDPG-style distance between a
     policy and a noisy policy.
@@ -50,13 +51,13 @@ def policy_distance_ddpg(
            URL: https://arxiv.org/abs/1706.01905
 
     """
-    delta = policy.distribution.sample() - noisy_policy.distribution.sample()
-    return (delta ** 2).mean().sqrt().item()
+    delta = policy.sample() - noisy_policy.sample()
+    return (delta**2).mean().sqrt().item()
 
 
 def policy_distance_dqn(
-    policy: "Policy",
-    noisy_policy: "Policy",
+    policy: "Distribution",
+    noisy_policy: "Distribution",
 ) -> "float":
     """Compute the DQN-style distance between a
     policy and a noisy policy.
@@ -80,8 +81,8 @@ def policy_distance_dqn(
            URL: https://arxiv.org/abs/1706.01905
 
     """
-    softmax = policy.distribution.sample().softmax(dim=-1)
-    noisy_softmax = noisy_policy.distribution.sample().softmax(dim=-1)
+    softmax = policy.sample().softmax(dim=-1)
+    noisy_softmax = noisy_policy.sample().softmax(dim=-1)
     return F.kl_div(softmax, noisy_softmax, reduction="none").sum(dim=-1).mean().item()
 
 
@@ -99,10 +100,10 @@ class ParameterNoiseAgent(StochasticAgent, DeterministicAgent):
 
     def __init__(
         self,
-        policy: "Policy",
+        policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
-        policy_distance_fn: "Callable[[Policy, Policy], float]",
+        policy_distance_fn: "Callable[[Distribution, Distribution], float]",
         is_batched: "bool" = False,
         initial_stddev: "float" = 0.1,
         target_stddev: "float" = 0.2,
@@ -114,17 +115,17 @@ class ParameterNoiseAgent(StochasticAgent, DeterministicAgent):
 
         Parameters
         ----------
-        policy:
-            The policy.
+        policy_network:
+            The policy network.
         observation_space:
             The (possibly batched) observation space.
         action_space:
             The (possibly batched) action space.
         policy_distance_fn:
             The function that computes the distance between a
-            policy and a noisy policy. This function receives
-            as arguments the policy and the noisy policy, and
-            returns the corresponding distance.
+            policy and a noisy policy. It receives as arguments
+            the policy and the noisy policy and returns the
+            corresponding distance.
         is_batched:
             True if `observation_space` and `action_space`
             are batched, False otherwise.
@@ -170,7 +171,7 @@ class ParameterNoiseAgent(StochasticAgent, DeterministicAgent):
         self._noises = None
         StochasticAgent.__init__(
             self,
-            policy,
+            policy_network,
             observation_space,
             action_space,
             is_batched,
@@ -187,7 +188,7 @@ class ParameterNoiseAgent(StochasticAgent, DeterministicAgent):
         with torch.no_grad():
             self._noises = [
                 torch.normal(0.0, self._stddev, param.shape, device=param.device)
-                for param in self.policy.parameters()
+                for param in self.policy_network.parameters()
             ]
 
     # override
@@ -196,12 +197,12 @@ class ParameterNoiseAgent(StochasticAgent, DeterministicAgent):
     ) -> "Tuple[ndarray, ndarray]":
         with torch.no_grad():
             # Add parameter noise
-            for param, noise in zip(self.policy.parameters(), self._noises):
+            for param, noise in zip(self.policy_network.parameters(), self._noises):
                 param += noise
         flat_action, log_prob = DeterministicAgent._predict(self, flat_observation)
         with torch.no_grad():
             # Remove parameter noise
-            for param, noise in zip(self.policy.parameters(), self._noises):
+            for param, noise in zip(self.policy_network.parameters(), self._noises):
                 param -= noise
         return flat_action, log_prob
 
@@ -209,18 +210,18 @@ class ParameterNoiseAgent(StochasticAgent, DeterministicAgent):
         # For simplicity, do not sample from experience
         # replay buffer but from observation space
         flat_observation = self._flat_observation_space.sample()
-        policy_state_backup = self._policy_state.clone()
-        # Noisy policy
-        self._policy_state[...] = 0.0
+        policy_network_state_backup = self._policy_network_state.clone()
+        # Compute noisy policy
+        self._policy_network_state[...] = 0.0
         self._stochastic_predict(flat_observation)
-        noisy_policy = deepcopy(self.policy)
-        # Policy
+        noisy_policy = self.policy_network.distribution  # deepcopy???
+        # Compute policy
         self._noises.clear()
-        self._policy_state[...] = 0.0
+        self._policy_network_state[...] = 0.0
         self._stochastic_predict(flat_observation)
-        policy = self.policy
+        policy = self.policy_network.distribution
         # Restore state
-        self._policy_state = policy_state_backup
+        self._policy_network_state = policy_network_state_backup
         # Compute distance
         distance = self.policy_distance_fn(policy, noisy_policy)
         if distance < self.target_stddev:
@@ -231,7 +232,7 @@ class ParameterNoiseAgent(StochasticAgent, DeterministicAgent):
     def __repr__(self) -> "str":
         return (
             f"{self.__class__.__name__}"
-            f"(policy: {self.policy}, "
+            f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
             f"policy_distance_fn: {self.policy_distance_fn}, "

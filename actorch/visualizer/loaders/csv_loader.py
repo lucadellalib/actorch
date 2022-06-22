@@ -2,7 +2,7 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""CSV loader."""
+"""CSV progress loader."""
 
 import csv
 from typing import Any, Dict, Optional, Sequence, Tuple

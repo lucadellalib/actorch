@@ -13,11 +13,11 @@ set -e
 # Killable by SIGINT
 trap "exit" INT
 
-export PATH=~$HOME/miniconda3/condabin:$PATH
+export PATH=~/miniconda3/condabin:$PATH
 
-root_dir=$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd -P)")
-current_dir=$PWD
-env_name=$(sed "s/env_name: //" $root_dir/bin/config.yml)
+root_dirpath=$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd -P)")
+curr_dirpath=$PWD
+env_name=$(sed "s/env_name: //" $root_dirpath/bin/config.yml)
 platform=$([ $(uname) == "Linux" ] && echo "linux" || echo "macos")
 
 if ! which conda >/dev/null; then
@@ -45,20 +45,24 @@ fi
 
 eval "$(command conda 'shell.bash' 'hook' 2> /dev/null)"
 
-export PIP_SRC=$root_dir/packages
+export PIP_SRC=$root_dirpath
 if conda env list | grep $env_name >/dev/null; then
   echo "Updating virtual environment..."
-  conda env update -n $env_name -f $root_dir/conda/environment-$platform.yml
+  conda env update -n $env_name -f $root_dirpath/conda/environment-$platform.yml
 else
   echo "Installing virtual environment..."
-  conda env create -n $env_name -f $root_dir/conda/environment-$platform.yml --force
+  conda env create -n $env_name -f $root_dirpath/conda/environment-$platform.yml --force
 fi
 
-echo "Installing git commit hook..."
+echo "Installing ACTorch..."
+cd $root_dirpath
 conda activate $env_name
-cd $root_dir
-pre-commit install -f
-cd $current_dir
+pip install -e .[dev]
+if [ -d ".git" ]; then
+  echo "Installing git commit hook..."
+  pre-commit install -f
+fi
 conda deactivate
+cd $curr_dirpath
 
 echo "Done!"

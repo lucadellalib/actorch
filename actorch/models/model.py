@@ -8,8 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional, Tuple, Union
 
 import torch
-import torch.nn as nn
-from torch import Tensor, device
+from torch import Tensor, device, nn
 
 
 __all__ = [
@@ -18,17 +17,16 @@ __all__ = [
 
 
 class Model(ABC, nn.Module):
-    """Generic many-to-many model that maps multiple
-    inputs to multiple outputs.
+    """Generic multimodal input multimodal output model.
 
-      Input 1  ....  Input n
+      input 1   ...  input n
          |              |
-     ____|______________|____
-    |         Torso          |
+    .____|______________|____.
+    |         model          |
     |________________________|
          |              |
          |              |
-      Output 1 .... Output m
+      output 1  ...  output m
 
     """
 
@@ -50,8 +48,8 @@ class Model(ABC, nn.Module):
 
         """
         super().__init__()
-        self.in_shapes = in_shapes
-        self.out_shapes = out_shapes
+        self.in_shapes = {k: torch.Size(s) for k, s in in_shapes.items()}
+        self.out_shapes = {k: torch.Size(s) for k, s in out_shapes.items()}
         self._setup()
 
     # override
@@ -87,15 +85,19 @@ class Model(ABC, nn.Module):
               ``outputs[name]``: ``[*B, *out_shapes[name]]``;
             - the possibly updated states.
 
+        Warnings
+        --------
+        Batch dimensions of `states` must be moved to the front.
+
         """
-        first_key = list(inputs.keys())[0]
-        first_input = inputs[first_key]
-        batch_shape = first_input.shape[
-            : first_input.ndim - len(self.in_shapes[first_key])
-        ]
         if states is None:
             states = {}
         if mask is None:
+            first_key = list(inputs)[0]
+            first_input = inputs[first_key]
+            batch_shape = first_input.shape[
+                : first_input.ndim - len(self.in_shapes[first_key])
+            ]
             mask = torch.ones(batch_shape, dtype=torch.bool, device=first_input.device)
         outputs, states = self._forward(inputs, states, mask)
         return outputs, states
@@ -111,7 +113,7 @@ class Model(ABC, nn.Module):
         states: "Dict[str, Tensor]",
         mask: "Tensor",
     ) -> "Tuple[Dict[str, Tensor], Dict[str, Tensor]]":
-        """See documentation of method `forward'."""
+        """See documentation of `forward'."""
         raise NotImplementedError
 
     @abstractmethod
@@ -120,9 +122,9 @@ class Model(ABC, nn.Module):
         batch_shape: "Tuple[int, ...]" = (1,),
         device: "Optional[Union[device, str]]" = "cpu",
     ) -> "Tuple[Dict[str, Tensor], Dict[str, Tensor], Tensor]":
-        """Return a sequence of example inputs for method `forward`.
+        """Return a sequence of example inputs for `forward`.
 
-        Useful, for example, to trace the model via `torch.jit.trace`.
+        Useful, for example, to trace the model through `torch.jit.trace`.
 
         Parameters
         ----------

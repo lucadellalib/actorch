@@ -4,9 +4,11 @@
 
 """Parallel batched environment."""
 
+import atexit
 import multiprocessing as mp
+import time
 from copy import deepcopy
-from typing import Any, Callable, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import cloudpickle
 import numpy as np
@@ -22,19 +24,20 @@ __all__ = [
 ]
 
 
-class _WorkerSharedMemory(mp.Process):
+class WorkerSharedMemory(mp.Process):
     """Worker process that runs an environment.
 
-    Observations are sent back to the main process via shared memory.
+    Observations are sent back to the main process through shared memory.
 
     """
 
     def __init__(
         self,
-        env_builder: "Callable[[], Env]",
+        env_builder: "Callable[..., Env]",
         connection: "mp.connection.Connection",
         shared_memory: "mp.RawArray",
         idx: "int",
+        env_config: "Optional[Dict[str, Any]]" = None,
         daemon: "Optional[bool]" = None,
     ) -> "None":
         """Initialize the object.
@@ -42,7 +45,9 @@ class _WorkerSharedMemory(mp.Process):
         Parameters
         ----------
         env_builder:
-            The environment builder.
+            The environment builder, i.e. a callable that
+            receives keyword arguments from a configuration
+            and returns a base environment.
         connection:
             The connection for communicating with the main process.
         shared_memory:
@@ -51,20 +56,27 @@ class _WorkerSharedMemory(mp.Process):
         idx:
             The worker index, used to locate the destination in the
             shared memory to write observations to.
+        env_config:
+            The environment configuration.
+            Default to ``{}``.
         daemon:
             True to run as a daemonic process, False otherwise.
 
         """
         super().__init__(daemon=daemon)
         self._pickled_env_builder = cloudpickle.dumps(env_builder)
+        self._pickled_env_config = cloudpickle.dumps(env_config or {})
         self._connection = connection
         self._shared_memory = shared_memory
         self._idx = idx
 
     # override
     def run(self) -> "None":
-        env = cloudpickle.loads(self._pickled_env_builder)()
+        env = cloudpickle.loads(self._pickled_env_builder)(
+            **cloudpickle.loads(self._pickled_env_config)
+        )
         del self._pickled_env_builder
+        del self._pickled_env_config
 
         # Locate destination in shared memory to write observations to
         dummy_flat_observation = flatten(
@@ -113,17 +125,45 @@ class _WorkerSharedMemory(mp.Process):
             env.close()
             self._connection.close()
 
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__[1:]}()"
-
 
 class ParallelBatchedEnv(BatchedEnv):
     """Batched environment based on subprocesses."""
 
     def __init__(
-        self, env_builder: "Callable[[], Env]", num_workers: "int" = 1
+        self,
+        env_builder: "Callable[..., Env]",
+        env_config: "Optional[Dict[str, Any]]" = None,
+        num_workers: "int" = 1,
+        timeout_s: "float" = 60.0,
     ) -> "None":
-        super().__init__(env_builder, num_workers)
+        """Initialize the object.
+
+        Parameters
+        ----------
+        env_builder:
+            The base environment builder, i.e. a callable that
+            receives keyword arguments from a configuration
+            and returns a base environment.
+        env_config:
+            The base environment configuration.
+            Default to ``{}``.
+        num_workers:
+            The number of copies of the base environment.
+        timeout_s:
+            The timeout in seconds for worker operations.
+
+        Raises
+        ------
+        ValueError
+            If `timeout_s` is not in the interval (0, inf).
+
+        """
+        super().__init__(env_builder, env_config, num_workers)
+        if timeout_s <= 0.0:
+            raise ValueError(
+                f"`timeout_s` ({timeout_s}) must be in the interval (0, inf)"
+            )
+        self.timeout_s = timeout_s
         dummy_flat_observation = flatten(
             self.single_observation_space,
             self.single_observation_space.sample(),
@@ -143,11 +183,12 @@ class ParallelBatchedEnv(BatchedEnv):
         for i in range(num_workers):
             parent, child = mp.Pipe()
             self._parents.append(parent)
-            process = _WorkerSharedMemory(
+            process = WorkerSharedMemory(
                 self.env_builder,
                 child,
                 shared_memory,
                 i,
+                self.env_config,
                 daemon=True,
             )
             self._processes.append(process)
@@ -162,11 +203,14 @@ class ParallelBatchedEnv(BatchedEnv):
         # True to unflatten the observation, False otherwise
         # Used by FlattenObservation wrapper to improve performance
         self.unflatten_observation = True
+        # Fix AttributeError: 'NoneType' object has no attribute 'dumps'
+        atexit.register(self.close)
 
     # override
     def _reset(self, idx: "Sequence[int]") -> "Nested[ndarray]":
         for i in idx:
             self._parents[i].send(["reset", None])
+        self._poll(idx)
         errors = []
         for i in idx:
             result, has_errored = self._parents[i].recv()
@@ -186,6 +230,7 @@ class ParallelBatchedEnv(BatchedEnv):
     ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray]":
         for i in idx:
             self._parents[i].send(["step", action[i]])
+        self._poll(idx)
         errors = []
         for i in idx:
             result, has_errored = self._parents[i].recv()
@@ -210,6 +255,7 @@ class ParallelBatchedEnv(BatchedEnv):
     def _seed(self, seed: "Sequence[Optional[int]]") -> "None":
         for i, parent in enumerate(self._parents):
             parent.send(["seed", seed[i]])
+        self._poll()
         errors = []
         for i, parent in enumerate(self._parents):
             result, has_errored = parent.recv()
@@ -221,6 +267,7 @@ class ParallelBatchedEnv(BatchedEnv):
     def _render(self, idx: "Sequence[int]", **kwargs: "Any") -> "None":
         for i in idx:
             self._parents[i].send(["render", kwargs])
+        self._poll(idx)
         errors = []
         for i in idx:
             result, has_errored = self._parents[i].recv()
@@ -233,6 +280,7 @@ class ParallelBatchedEnv(BatchedEnv):
         try:
             for parent in self._parents:
                 parent.send(["close", None])
+            self._poll()
             errors = []
             for i, parent in enumerate(self._parents):
                 result, has_errored = parent.recv()
@@ -243,6 +291,21 @@ class ParallelBatchedEnv(BatchedEnv):
             pass
         finally:
             self._cleanup()
+
+    def _poll(self, idx: "Optional[Sequence[int]]" = None) -> "None":
+        if idx is None:
+            idx = range(self.num_workers)
+        error_msgs = []
+        end_time = time.perf_counter() + self.timeout_s
+        for i in idx:
+            timeout = max(end_time - time.perf_counter(), 0)
+            if not self._parents[i].poll(timeout):
+                error_msgs.append(
+                    f"[Worker {i}] Operation has timed out after {self.timeout_s} second(s)"
+                )
+        if error_msgs:
+            self._cleanup()
+            raise mp.TimeoutError("\n" + "\n".join(error_msgs))
 
     def _raise(self, errors: "Sequence[Tuple[int, str]]") -> "None":
         if errors:

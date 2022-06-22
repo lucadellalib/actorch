@@ -9,8 +9,8 @@ rem NOTE: `conda` will not be uninstalled
 
 set PATH=%PATH%;%HOMEDRIVE%%HOMEPATH%\miniconda3\condabin\
 
-set root_dir=%~dp0..
-for /f "tokens=2 delims=: " %%i in (%root_dir%\bin\config.yml) do set env_name=%%i
+set root_dirpath=%~dp0..
+for /f "tokens=2 delims=: " %%i in (%root_dirpath%\bin\config.yml) do set env_name=%%i
 
 echo Uninstalling virtual environment...
 call conda env remove -n %env_name%

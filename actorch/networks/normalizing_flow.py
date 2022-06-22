@@ -5,10 +5,9 @@
 """Normalizing flow."""
 
 from abc import ABC, abstractmethod
-from typing import Tuple
 
-from torch import Tensor
-from torch.distributions import Transform
+from torch import Size, Tensor
+from torch.distributions import Transform, constraints
 from torch.nn import Module
 
 
@@ -20,12 +19,13 @@ __all__ = [
 class NormalizingFlow(ABC, Transform, Module):
     """Transform with learnable parameters.
 
-    Useful to learn arbitrarily complex distributions while retaining the ease of reparameterization of simple ones.
-    Derived classes must implement `_call` to allow for sampling from the corresponding transformed distribution.
-    If the transform is invertible, `_inverse`, and `log_abs_det_jacobian` should be implemented to allow for
-    computing the log probability of samples drawn from the corresponding transformed distribution.
-    Note that, even when `_inverse` cannot be implemented (e.g. no closed-form solution exists), the log probability
-    of samples drawn from the corresponding transformed distribution can still be computed by enabling caching.
+    Useful to learn arbitrarily complex distributions while retaining the ease of reparametrization of simple ones.
+    Derived classes must implement `domain`, `codomain`, `forward_shape`, `inverse_shape` and `_call` to allow for
+    sampling from the corresponding transformed distribution. If the transform is invertible, `_inverse`, and
+    `log_abs_det_jacobian` should be implemented to allow for computing the log probability of samples drawn from
+    the corresponding transformed distribution. Note that, even when `_inverse` cannot be implemented (e.g. no
+    closed-form solution exists), the log probability of samples drawn from the corresponding transformed
+    distribution can still be computed by enabling caching.
 
     See Also
     --------
@@ -53,27 +53,35 @@ class NormalizingFlow(ABC, Transform, Module):
     is_constant_jacobian = False
     """Whether the Jacobian matrix is constant (i.e. the transform is affine)."""
 
-    def __init__(self, in_shape: "Tuple[int, ...]", cache_size: "int" = 0) -> "None":
-        """Initialize the object.
-
-        Parameters
-        ----------
-        in_shape:
-            The input event shape.
-        cache_size:
-            The cache size. If 0, no caching is done. If 1, the latest
-            single value is cached. Only 0 and 1 are supported.
-
-        """
-        self.in_shape = in_shape
-        super().__init__(cache_size)
-
     def __hash__(self) -> "int":
         return Module.__hash__(self)
 
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}(in_shape: {self.in_shape})"
+        return f"{self.__class__.__name__}()"
 
+    # override
+    @property
+    @abstractmethod
+    def domain(self) -> "constraints.Constraint":
+        raise NotImplementedError
+
+    # override
+    @property
+    @abstractmethod
+    def codomain(self) -> "constraints.Constraint":
+        raise NotImplementedError
+
+    # override
+    @abstractmethod
+    def forward_shape(self, shape: "Size") -> "Size":
+        raise NotImplementedError
+
+    # override
+    @abstractmethod
+    def inverse_shape(self, shape: "Size") -> "Size":
+        raise NotImplementedError
+
+    # override
     @abstractmethod
     def _call(self, x: "Tensor") -> "Tensor":
         raise NotImplementedError

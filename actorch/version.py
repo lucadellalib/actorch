@@ -10,14 +10,13 @@ __all__ = [
 ]
 
 
-_MAJOR = "0"
-"""Major version to increment in case of incompatible API changes."""
+_MAJOR = "0"  # Major version to increment in case of incompatible API changes
 
-_MINOR = "0"
-"""Minor version to increment in case of backward compatible new functionality."""
+_MINOR = (
+    "0"  # Minor version to increment in case of backward compatible new functionality
+)
 
-_PATCH = "1"
-"""Patch version to increment in case of backward compatible bug fixes."""
+_PATCH = "1"  # Patch version to increment in case of backward compatible bug fixes
 
 VERSION = f"{_MAJOR}.{_MINOR}.{_PATCH}"
 """The package version."""

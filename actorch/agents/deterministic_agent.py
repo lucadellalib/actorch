@@ -13,7 +13,7 @@ from numpy import ndarray
 from torch import device
 
 from actorch.agents.agent import Agent
-from actorch.registry import register
+from actorch.networks import PolicyNetwork
 
 
 __all__ = [
@@ -21,21 +21,20 @@ __all__ = [
 ]
 
 
-@register
 class DeterministicAgent(Agent):
     """Agent that returns a deterministic prediction."""
 
     def __init__(
         self,
-        policy: "Policy",
+        policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
         is_batched: "bool" = False,
         device: "Optional[Union[device, str]]" = "cpu",
     ) -> "None":
-        self._policy_state = None
+        self._policy_network_state = None
         super().__init__(
-            policy,
+            policy_network,
             observation_space,
             action_space,
             is_batched,
@@ -44,8 +43,8 @@ class DeterministicAgent(Agent):
 
     # override
     def _reset(self, mask: "ndarray") -> "None":
-        if self._policy_state is not None:
-            self._policy_state[mask] = 0.0
+        if self._policy_network_state is not None:
+            self._policy_network_state[mask] = 0.0
 
     # override
     def _predict(self, flat_observation: "ndarray") -> "Tuple[ndarray, ndarray]":
@@ -53,9 +52,10 @@ class DeterministicAgent(Agent):
         flat_observation = flat_observation[:, None, ...]
         input = torch.as_tensor(flat_observation, device=self.device)
         with torch.no_grad():
-            _, self._policy_state = self.policy(input, self._policy_state)
-        prediction = self.policy.deterministic_prediction
-        flat_action = self.policy.decode(prediction).to("cpu").numpy()
+            _, self._policy_network_state = self.policy_network(
+                input, self._policy_network_state
+            )
+        flat_action = self.policy_network.predict().to("cpu").numpy()
         # Remove temporal axis
         flat_action = flat_action[:, 0, ...]
         log_prob = np.zeros(len(flat_action))

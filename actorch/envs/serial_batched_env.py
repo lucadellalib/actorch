@@ -5,7 +5,7 @@
 """Serial batched environment."""
 
 from copy import deepcopy
-from typing import Any, Callable, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 from gym import Env
@@ -24,9 +24,12 @@ class SerialBatchedEnv(BatchedEnv):
     """Batched environment based on loops."""
 
     def __init__(
-        self, env_builder: "Callable[[], Env]", num_workers: "int" = 1
+        self,
+        env_builder: "Callable[..., Env]",
+        env_config: "Optional[Dict[str, Any]]" = None,
+        num_workers: "int" = 1,
     ) -> "None":
-        super().__init__(env_builder, num_workers)
+        super().__init__(env_builder, env_config, num_workers)
         dummy_flat_observation = flatten(
             self.single_observation_space,
             self.single_observation_space.sample(),

@@ -92,7 +92,7 @@ def vtrace(
     Raises
     ------
     ValueError
-        If an invalid argument value is provided.
+        If an invalid argument value is given.
 
     References
     ----------

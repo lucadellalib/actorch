@@ -11,6 +11,7 @@ from typing import Any
 
 from colorama import Fore, Style, init
 
+from actorch.runner import Run
 from actorch.version import VERSION
 from actorch.visualizer import Visualize
 
@@ -43,8 +44,8 @@ class ACTorch:
     """ACTorch main script."""
 
     _SCRIPT_TYPES = {
-        # "run": Run,
-        "visualize": Visualize,
+        "run": (Run, "run experiment"),
+        "visualize": (Visualize, "visualize experiment progress"),
     }
 
     def main(self, args: "Namespace") -> "None":
@@ -55,13 +56,13 @@ class ACTorch:
         args:
             The command line arguments obtained from an
             `argparse.ArgumentParser` (e.g. the default
-            parser returned by method `get_default_parser`).
+            parser returned by `get_default_parser`).
 
         """
         command = getattr(args, "command", None)
         if command not in self._SCRIPT_TYPES:
             raise ValueError(
-                f"`command` ({command}) must be in {list(self._SCRIPT_TYPES.keys())}"
+                f"`command` ({command}) must be in {list(self._SCRIPT_TYPES)}"
             )
         script = self._SCRIPT_TYPES[command]()
         del args.command
@@ -69,7 +70,7 @@ class ACTorch:
 
     @classmethod
     def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
-        """Return a default command line argument parser for method `main`.
+        """Return a default command line argument parser for `main`.
 
         Parameters
         ----------
@@ -81,17 +82,22 @@ class ACTorch:
             The default command line argument parser.
 
         """
+        parser_kwargs.setdefault("description", "ACTorch main script")
         parser = ArgumentParser(**parser_kwargs)
         subparsers = parser.add_subparsers(
             title="command", dest="command", required=True
         )
-        for command, script_cls in cls._SCRIPT_TYPES.items():
+        for command, (script_cls, command_help) in cls._SCRIPT_TYPES.items():
             subparsers.add_parser(
                 command,
+                help=command_help,
                 parents=[script_cls.get_default_parser()],
                 conflict_handler="resolve",
             )
         return parser
+
+    def __repr__(self) -> "str":
+        return f"{self.__class__.__name__}()"
 
 
 def main() -> "None":

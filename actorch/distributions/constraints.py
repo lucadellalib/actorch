@@ -18,7 +18,7 @@ __all__ = [
 
 class _Cat(constraints.cat):
     """Extended version of `torch.distributions.constraints.cat` that
-    implements property `is_discrete` and method `check` correctly.
+    implements `is_discrete` and `check` correctly.
 
     """
 

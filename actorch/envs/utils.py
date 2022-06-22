@@ -73,8 +73,9 @@ def batch_space(space: "spaces.Space", batch_size: "int" = 1) -> "spaces.Space":
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `batch_space.register`"
     )
 
@@ -123,8 +124,9 @@ def unnest_space(
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `unnest_space.register`"
     )
 
@@ -166,8 +168,9 @@ def get_space_bounds(space: "spaces.Space") -> "Tuple[Nested, Nested]":
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `get_space_bounds.register`"
     )
 
@@ -210,7 +213,12 @@ def flatten(
     arrays = []
     ndmin = 1
     for v in unnested:
-        array = np.asarray(v).reshape(*batch_shape, -1)
+        try:
+            array = np.asarray(v).reshape(*batch_shape, -1)
+        except Exception:
+            raise ValueError(
+                f"`x` ({x}) must be a batched sample from `space` ({space})"
+            )
         if array.ndim > ndmin:
             ndmin = array.ndim
         arrays.append(array)
@@ -256,7 +264,12 @@ def unflatten(
         arrays = []
         ndmin = 1
         for v in unnested:
-            array = np.asarray(v).reshape(*batch_shape, -1)
+            try:
+                array = np.asarray(v).reshape(*batch_shape, -1)
+            except Exception:
+                raise ValueError(
+                    f"`x` ({x}) must be a batched flat sample from `space` ({space})"
+                )
             if array.ndim > ndmin:
                 ndmin = array.ndim
             arrays.append(array)
@@ -318,8 +331,9 @@ def unnest(
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `unnest.register`"
     )
 
@@ -369,8 +383,9 @@ def nest(
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `nest.register`"
     )
 
@@ -420,8 +435,9 @@ def batch(
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `batch.register`"
     )
 
@@ -471,8 +487,9 @@ def unbatch(
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `unbatch.register`"
     )
 
@@ -527,8 +544,9 @@ def get_log_prob(
 
     """
     raise NotImplementedError(
-        f"Unsupported space type: {type(space)}. "
-        f"Register a custom space type via "
+        f"Unsupported space type: "
+        f"`{type(space).__module__}.{type(space).__name__}`. "
+        f"Register a custom space type through "
         f"decorator `get_log_prob.register`"
     )
 

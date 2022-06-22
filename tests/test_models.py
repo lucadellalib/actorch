@@ -8,10 +8,9 @@
 
 import pytest
 import torch
-import torch.nn as nn
+from torch import nn
 
-from actorch.models import FC, Conv, Recurrent
-from actorch.utils.common import set_seed
+from actorch.models import ConvNet, FCNet, LSTMNet
 
 
 _TEST_CASES = {}
@@ -25,6 +24,7 @@ _TEST_CASES["FC"] = [
             "loc": (5,),
             "scale": (5,),
         },
+        "independent_heads": ["scale"],
     },
     {
         "in_shapes": {
@@ -54,6 +54,7 @@ _TEST_CASES["Conv"] = [
             "loc": (5,),
             "scale": (5,),
         },
+        "independent_heads": ["scale"],
     },
     {
         "in_shapes": {
@@ -88,7 +89,8 @@ _TEST_CASES["Conv"] = [
             {"out_channels": 8, "kernel_size": 4, "bias": True},
             {"out_channels": 8, "kernel_size": 4, "bias": False},
         ],
-        "torso_activation_builder": nn.Identity,
+        "torso_activation_builder": nn.LeakyReLU,
+        "torso_activation_config": {"negative_slope": 1e-2},
     },
 ]
 
@@ -101,6 +103,7 @@ _TEST_CASES["Recurrent"] = [
             "loc": (5,),
             "scale": (5,),
         },
+        "independent_heads": ["scale"],
     },
     {
         "in_shapes": {
@@ -146,21 +149,21 @@ _TEST_CASES["Recurrent"] = [
 @pytest.mark.parametrize("model_config", _TEST_CASES["FC"])
 @pytest.mark.parametrize("batch_shape", [(1,), (4,), (3, 4), (2, 3, 4), (2, 3, 4, 5)])
 def test_fc(model_config, batch_shape):
-    set_seed(0)
-    return _test_model(FC, model_config, batch_shape)
+    torch.manual_seed(0)
+    return _test_model(FCNet, model_config, batch_shape)
 
 
 @pytest.mark.parametrize("model_config", _TEST_CASES["Conv"])
 @pytest.mark.parametrize("batch_shape", [(1,), (4,), (3, 4), (2, 3, 4), (2, 3, 4, 5)])
 def test_conv(model_config, batch_shape):
-    set_seed(0)
-    return _test_model(Conv, model_config, batch_shape)
+    torch.manual_seed(0)
+    return _test_model(ConvNet, model_config, batch_shape)
 
 
 @pytest.mark.parametrize("model_config", _TEST_CASES["Recurrent"])
 @pytest.mark.parametrize("batch_shape", [(1,), (4,), (3, 4), (2, 3, 4), (2, 3, 4, 5)])
 def test_recurrent(model_config, batch_shape):
-    set_seed(0)
+    torch.manual_seed(0)
     batch_first = (
         model_config["torso_lstm_config"].get("batch_first", False)
         if "torso_lstm_config" in model_config
@@ -186,7 +189,7 @@ def test_recurrent(model_config, batch_shape):
         else seq_lengths.expand(T, *B)
     )
     mask = mask < seq_lengths
-    return _test_model(Recurrent, model_config, batch_shape, mask=mask)
+    return _test_model(LSTMNet, model_config, batch_shape, mask=mask)
 
 
 def _test_model(model_builder, model_config, batch_shape, states=None, mask=None):

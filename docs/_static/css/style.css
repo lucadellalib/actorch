@@ -1,0 +1,83 @@
+p {
+   font-family: Barlow,Helvetica Neue,sans-serif;
+}
+
+h1, h2, h3 {
+   font-family: Barlow,Helvetica Neue,sans-serif;
+}
+
+.wy-side-nav-search, .wy-nav-top {
+   background: #f8f8f8;
+}
+
+.wy-side-nav-search>div.version {
+    color: rgba(0, 0, 0, 0.79);
+}
+
+.wy-nav-content a:link {
+    color: #ee4c2c;
+}
+
+.wy-nav-content a:visited {
+    color: #ff4136;
+}
+
+.wy-nav-content a:hover {
+    color: #ff851b;
+}
+
+.wy-nav-content a:active {
+    color: #ee4c2c;
+}
+
+.wy-menu-vertical p.caption {
+    color: #d9d9d9;
+}
+
+.rst-content .important .admonition-title {
+    background: #ee4c2c;
+}
+
+.rst-content .important {
+    background: #f8f8f8;
+}
+
+.rst-content .seealso .admonition-title {
+    background: #ee4c2c;
+}
+
+.rst-content .seealso {
+    background: #f8f8f8;
+}
+
+.rst-content .tip .admonition-title {
+    background: #ee4c2c;
+}
+
+.rst-content .tip {
+    background: #f8f8f8;
+}
+
+.rst-content .attention .admonition-title {
+    background: #ee4c2c;
+}
+
+.rst-content .attention {
+    background: #f8f8f8;
+}
+
+.rst-content .hint .admonition-title {
+    background: #ee4c2c;
+}
+
+.rst-content .hint {
+    background: #f8f8f8;
+}
+
+.rst-content .warning .admonition-title {
+    background: #ee4c2c;
+}
+
+.rst-content .warning {
+    background: #f8f8f8;
+}

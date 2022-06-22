@@ -11,16 +11,15 @@ from collections import defaultdict
 from typing import Any, Callable, List, Optional, Tuple, Type, Union
 
 import torch
+from torch import Tensor
 from torch import distributions as ds
 
-from actorch.distributions.cat_distribution import CatDistribution
 from actorch.distributions.deterministic import Deterministic
 from actorch.distributions.finite import Finite
 from actorch.distributions.masked_distribution import MaskedDistribution
 from actorch.distributions.transformed_distribution import TransformedDistribution
 from actorch.distributions.transforms import SumTransform
 from actorch.distributions.utils import is_affine, is_scaling
-from actorch.utils import is_identical
 
 
 __all__ = [
@@ -39,10 +38,10 @@ def register_reduction(
     transform_cls: "Type[ds.Transform]",
     condition_fn: "Optional[Callable[[ds.Distribution, ds.Transform], bool]]" = None,
 ) -> "Callable":
-    """Decorator to register a reduction function that maps a distribution-transform
+    """Decorator that registers a reduction function that maps a distribution-transform
     pair to its corresponding reduced distribution. Optionally, a condition function
-    can be provided, that checks whether the reduction function is applicable to the
-    given distribution-transform pair (useful, for example, to avoid ambiguities).
+    can be given, that checks whether the reduction function is applicable to the
+    distribution-transform pair (useful, for example, to avoid ambiguities).
 
     Parameters
     ----------
@@ -52,8 +51,8 @@ def register_reduction(
         The transform class to register.
     condition_fn:
         The function invoked before applying the reduction function.
-        This function receives as arguments the distribution and the transform
-        and returns True if the reduction function is applicable, False otherwise.
+        It receives as arguments the distribution and the transform and
+        returns True if the reduction function is applicable, False otherwise.
 
     Returns
     -------
@@ -62,7 +61,7 @@ def register_reduction(
     Raises
     ------
     ValueError
-        If an invalid argument value is provided.
+        If an invalid argument value is given.
 
     """
     if (not isinstance(distribution_cls, type)) or (
@@ -78,7 +77,7 @@ def register_reduction(
             f"`transform_cls` ({transform_cls}) must be a subclass of `torch.distributions.Transform`"
         )
 
-    def register_fn(
+    def registration_fn(
         reduction_fn: "Callable[..., ds.Distribution]",
     ) -> "Callable[..., ds.Distribution]":
         _REDUCTION_REGISTRY[distribution_cls, transform_cls].append(
@@ -87,13 +86,14 @@ def register_reduction(
         _REDUCTION_MEMOIZE.clear()  # Reset since lookup order may have changed
         return reduction_fn
 
-    return register_fn
+    return registration_fn
 
 
 def reduce(
     distribution: "ds.Distribution", transform: "ds.Transform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    """Reduce a distribution based on the applied transform.
+    """Reduce a distribution based on the applied transform (find the most specific
+    approximate match, assuming single inheritance).
 
     For example, if the distribution is a `Normal(mu, sigma)` and the applied transform
     is an `AffineTransform(loc, scale)`, then the resulting reduced distribution is a
@@ -107,6 +107,12 @@ def reduce(
     ------
     NotImplementedError
         If no applicable reduction function exists.
+
+    Warnings
+    --------
+    Reducing `actorch.distributions.CatDistribution` instances whose base distributions
+    are (possibly wrapped) `actorch.distributions.MaskedDistribution` instances might
+    lead to incorrect results.
 
     """
     try:
@@ -135,22 +141,8 @@ def _dispatch_reduction(
     return reductions
 
 
-def _check_cat_cat(
-    cat_distribution: "CatDistribution", cat_transform: "ds.CatTransform"
-) -> "bool":
-    return (
-        cat_distribution.dim == cat_transform.dim
-        and len(cat_distribution.base_dists) == len(cat_transform.transforms)
-        and all(
-            (
-                d.event_shape[cat_distribution.dim]
-                if -len(d.event_shape) <= cat_distribution.dim < len(d.event_shape)
-                else 1
-            )
-            == l
-            for d, l in zip(cat_distribution.base_dists, cat_transform.lengths)
-        )
-    )
+def _is_identical(input: "Tensor", dim: "int" = 0) -> "bool":
+    return (input == input.select(dim, 0).unsqueeze(dim)).all(dim=dim).all()
 
 
 #####################################################################################################
@@ -159,12 +151,12 @@ def _check_cat_cat(
 
 
 @register_reduction(
-    ds.Binomial,
+    ds.Bernoulli,
     ds.Transform,
     lambda d, t: t.domain.event_dim == t.codomain.event_dim == 0,
 )
 @register_reduction(
-    ds.Bernoulli,
+    ds.Binomial,
     ds.Transform,
     lambda d, t: t.domain.event_dim == t.codomain.event_dim == 0,
 )
@@ -174,12 +166,26 @@ def _check_cat_cat(
     lambda d, t: t.domain.event_dim == t.codomain.event_dim == 0,
 )
 def _reduction_finite_support_univariate(
-    distribution: "Union[ds.Binomial, ds.Bernoulli, ds.Categorical]",
+    distribution: "Union[ds.Bernoulli, ds.Binomial, ds.Categorical]",
     transform: "ds.Transform",
     **kwargs: "Any",
 ) -> "Finite":
     support = distribution.enumerate_support()
     logits = distribution.log_prob(support).movedim(-1, 0)
+    if isinstance(transform, ds.AffineTransform):
+        transform.loc = torch.as_tensor(
+            transform.loc, device=getattr(transform.scale, "device", None)
+        )
+        transform.scale = torch.as_tensor(
+            transform.scale, device=getattr(transform.loc, "device", None)
+        )
+        # Expand right
+        transform.loc = transform.loc[
+            (...,) + (None,) * (logits.ndim - transform.loc.ndim)
+        ].expand_as(logits)
+        transform.scale = transform.scale[
+            (...,) + (None,) * (logits.ndim - transform.scale.ndim)
+        ].expand_as(logits)
     atoms = transform(support.movedim(-1, 0))
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     return Finite(logits=logits, atoms=atoms, validate_args=validate_args)
@@ -191,9 +197,24 @@ def _reduction_finite_support_univariate(
 def _reduction_finite_univariate(
     distribution: "Finite", transform: "ds.Transform", **kwargs: "Any"
 ) -> "Finite":
+    logits = distribution.logits
+    if isinstance(transform, ds.AffineTransform):
+        transform.loc = torch.as_tensor(
+            transform.loc, device=getattr(transform.scale, "device", None)
+        )
+        transform.scale = torch.as_tensor(
+            transform.scale, device=getattr(transform.loc, "device", None)
+        )
+        # Expand right
+        transform.loc = transform.loc[
+            (...,) + (None,) * (logits.ndim - transform.loc.ndim)
+        ].expand_as(logits)
+        transform.scale = transform.scale[
+            (...,) + (None,) * (logits.ndim - transform.scale.ndim)
+        ].expand_as(logits)
     atoms = transform(distribution.atoms)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    return Finite(logits=distribution.logits, atoms=atoms, validate_args=validate_args)
+    return type(distribution)(logits=logits, atoms=atoms, validate_args=validate_args)
 
 
 @register_reduction(Deterministic, ds.Transform)
@@ -202,12 +223,12 @@ def _reduction_deterministic_transform(
 ) -> "Union[Deterministic, MaskedDistribution]":
     value = transform(distribution.value)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = Deterministic(value, validate_args)
+    base_distribution = type(distribution)(value, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -232,9 +253,70 @@ def _reduction_loc_scale_affine(
     base_distribution = type(distribution)(loc, scale, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
+    )
+
+
+@register_reduction(ds.MixtureSameFamily, ds.Transform, lambda d, t: is_affine(t))
+def _reduction_mixture_same_family_affine(
+    distribution: "ds.MixtureSameFamily",
+    transform: "ds.Transform",
+    **kwargs: "Any",
+) -> "Union[ds.MixtureSameFamily, MaskedDistribution]":
+    mixture_distribution = distribution.mixture_distribution
+    logits = mixture_distribution.logits
+    if isinstance(transform, ds.AffineTransform):
+        transform.loc = torch.as_tensor(
+            transform.loc, device=getattr(transform.scale, "device", None)
+        )
+        transform.scale = torch.as_tensor(
+            transform.scale, device=getattr(transform.loc, "device", None)
+        )
+        # Expand right
+        transform.loc = transform.loc[
+            (...,) + (None,) * (logits.ndim - transform.loc.ndim)
+        ].expand_as(logits)
+        transform.scale = transform.scale[
+            (...,) + (None,) * (logits.ndim - transform.scale.ndim)
+        ].expand_as(logits)
+    component_distribution = reduce(
+        distribution.component_distribution, transform, **kwargs
+    )
+    validate_args = kwargs.get("validate_args", distribution._validate_args)
+    base_distribution = type(distribution)(
+        mixture_distribution, component_distribution, validate_args
+    )
+    mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
+    return (
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
+    )
+
+
+@register_reduction(ds.MultivariateNormal, ds.AffineTransform)
+@register_reduction(ds.LowRankMultivariateNormal, ds.AffineTransform)
+def _reduction_multivariate_normal_affine_loc_scale(
+    distribution: "ds.MultivariateNormal",
+    transform: "ds.AffineTransform",
+    **kwargs: "Any",
+) -> "Union[ds.MultivariateNormal, MaskedDistribution]":
+    loc = transform(distribution.loc)
+    covariance_matrix = (
+        distribution.covariance_matrix
+        * transform.scale[..., None].expand_as(distribution.covariance_matrix) ** 2
+    )
+    validate_args = kwargs.get("validate_args", distribution._validate_args)
+    base_distribution = ds.MultivariateNormal(
+        loc, covariance_matrix, validate_args=validate_args
+    )
+    mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
+    return (
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -246,12 +328,12 @@ def _reduction_student_t_affine(
     shift = transform(torch.zeros_like(distribution.scale))
     scale = transform(distribution.scale) - shift
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.StudentT(distribution.df, loc, scale, validate_args)
+    base_distribution = type(distribution)(distribution.df, loc, scale, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -262,12 +344,12 @@ def _reduction_uniform_affine(
     low = transform(distribution.low)
     high = transform(distribution.high)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Uniform(low, high, validate_args)
+    base_distribution = type(distribution)(low, high, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -282,12 +364,12 @@ def _reduction_exponential_scaling(
 ) -> "Union[ds.Exponential, MaskedDistribution]":
     rate = 1 / transform(1 / distribution.rate)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Exponential(rate, validate_args)
+    base_distribution = type(distribution)(rate, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -297,12 +379,14 @@ def _reduction_gamma_scaling(
 ) -> "Union[ds.Gamma, MaskedDistribution]":
     rate = 1 / transform(1 / distribution.rate)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Gamma(distribution.concentration, rate, validate_args)
+    base_distribution = type(distribution)(
+        distribution.concentration, rate, validate_args
+    )
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -318,9 +402,9 @@ def _reduction_half_cauchy_half_normal_scaling(
     base_distribution = type(distribution)(scale, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -330,12 +414,12 @@ def _reduction_pareto_scaling(
 ) -> "Union[ds.Pareto, MaskedDistribution]":
     scale = transform(distribution.scale)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Pareto(scale, distribution.alpha, validate_args)
+    base_distribution = type(distribution)(scale, distribution.alpha, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -345,12 +429,14 @@ def _reduction_weibull_scaling(
 ) -> "Union[ds.Weibull, MaskedDistribution]":
     scale = transform(distribution.scale)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Weibull(scale, distribution.concentration, validate_args)
+    base_distribution = type(distribution)(
+        scale, distribution.concentration, validate_args
+    )
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -362,12 +448,12 @@ def _reduction_weibull_scaling(
 @register_reduction(
     ds.Bernoulli,
     SumTransform,
-    lambda d, t: is_identical(d.logits, t.dim - t.domain.event_dim),
+    lambda d, t: _is_identical(d.logits, t.dim - t.domain.event_dim),
 )
 @register_reduction(
     ds.Geometric,
     SumTransform,
-    lambda d, t: is_identical(d.logits, t.dim - t.domain.event_dim),
+    lambda d, t: _is_identical(d.logits, t.dim - t.domain.event_dim),
 )
 def _reduction_bernoulli_geometric_sum(
     distribution: "Union[ds.Bernoulli, ds.Geometric]",
@@ -385,21 +471,21 @@ def _reduction_bernoulli_geometric_sum(
     )
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
 @register_reduction(
     ds.Binomial,
     SumTransform,
-    lambda d, t: is_identical(d.logits, t.dim - t.domain.event_dim),
+    lambda d, t: _is_identical(d.logits, t.dim - t.domain.event_dim),
 )
 @register_reduction(
     ds.NegativeBinomial,
     SumTransform,
-    lambda d, t: is_identical(d.logits, t.dim - t.domain.event_dim),
+    lambda d, t: _is_identical(d.logits, t.dim - t.domain.event_dim),
 )
 def _reduction_binomial_negative_binomial_sum(
     distribution: "Union[ds.Binomial, ds.NegativeBinomial]",
@@ -414,9 +500,9 @@ def _reduction_binomial_negative_binomial_sum(
     )
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -426,12 +512,12 @@ def _reduction_poisson_sum(
 ) -> "Union[ds.Poisson, MaskedDistribution]":
     rate = transform(distribution.rate)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Poisson(rate, validate_args)
+    base_distribution = type(distribution)(rate, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -443,33 +529,35 @@ def _reduction_cauchy_normal_sum(
     **kwargs: "Any",
 ) -> "Union[ds.Cauchy, ds.Normal, MaskedDistribution]":
     loc = transform(distribution.loc)
-    scale = transform(distribution.scale ** 2).sqrt()
+    scale = transform(distribution.scale**2).sqrt()
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     base_distribution = type(distribution)(loc, scale, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
 @register_reduction(
     ds.Gamma,
     SumTransform,
-    lambda d, t: is_identical(d.rate, t.dim - t.domain.event_dim),
+    lambda d, t: _is_identical(d.rate, t.dim - t.domain.event_dim),
 )
 def _reduction_gamma_sum(
     distribution: "ds.Gamma", transform: "SumTransform", **kwargs: "Any"
 ) -> "Union[ds.Gamma, MaskedDistribution]":
     concentration = transform(distribution.concentration)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Gamma(concentration, distribution.rate, validate_args)
+    base_distribution = type(distribution)(
+        concentration, distribution.rate, validate_args
+    )
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -479,12 +567,12 @@ def _reduction_chi2_sum(
 ) -> "Union[ds.Chi2, MaskedDistribution]":
     df = transform(distribution.df)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
-    base_distribution = ds.Chi2(df, validate_args)
+    base_distribution = type(distribution)(df, validate_args)
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -525,9 +613,9 @@ def _reduction_normal_stick_breaking(
     )
     mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
     return (
-        MaskedDistribution(base_distribution, mask, validate_args)
-        if not mask.all()
-        else base_distribution
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
     )
 
 
@@ -545,36 +633,19 @@ def _reduction_independent_transform(
     ndims += transform.codomain.event_dim - len(base_distribution.event_shape)
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     return (
-        ds.Independent(base_distribution, ndims, validate_args)
+        type(distribution)(base_distribution, ndims, validate_args)
         if ndims > 0
         else base_distribution
     )
 
 
-@register_reduction(CatDistribution, ds.CatTransform, _check_cat_cat)
-def _reduction_cat_cat(
-    distribution: "CatDistribution", transform: "ds.CatTransform", **kwargs: "Any"
-) -> "CatDistribution":
-    base_distributions = [
-        reduce(d, t, **kwargs)
-        for d, t in zip(distribution.base_dists, transform.transforms)
-    ]
-    validate_args = kwargs.get("validate_args", distribution._validate_args)
-    return CatDistribution(base_distributions, distribution.dim, validate_args)
-
-
-@register_reduction(ds.Distribution, ds.CatTransform, lambda d, t: len(t.tseq) == 1)
+@register_reduction(
+    ds.Distribution, ds.CatTransform, lambda d, t: len(t.transforms) == 1
+)
 def _reduction_distribution_cat(
     distribution: "ds.Distribution", transform: "ds.CatTransform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    return reduce(distribution, transform.tseq[0], **kwargs)
-
-
-@register_reduction(CatDistribution, ds.Transform, lambda d, t: len(d.base_dists) == 1)
-def _reduction_cat_transform(
-    distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
-) -> "ds.Distribution":
-    return reduce(distribution.base_dists[0], transform, **kwargs)
+    return reduce(distribution, transform.transforms[0], **kwargs)
 
 
 @register_reduction(
@@ -587,7 +658,7 @@ def _reduction_masked_event_transform(
 ) -> "MaskedDistribution":
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     base_distribution = reduce(distribution.base_dist, transform, **kwargs)
-    return MaskedDistribution(base_distribution, distribution.mask, validate_args)
+    return type(distribution)(base_distribution, distribution.mask, validate_args)
 
 
 @register_reduction(
@@ -611,7 +682,7 @@ def _reduction_masked_batch_transform(
     return reduce(distribution.base_dist, transform, **kwargs)
 
 
-# Avoid matching subclasses of `distributions.TransformedDistribution` such as `Gumbel`
+# Avoid matching subclasses of `torch.distributions.TransformedDistribution` such as `Gumbel`
 @register_reduction(
     ds.TransformedDistribution,
     ds.Transform,
@@ -653,7 +724,7 @@ def _reduction_distribution_independent(
 def _reduction_distribution_compose(
     distribution: "ds.Distribution", transform: "ds.ComposeTransform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    for i, part in enumerate(transform.parts):
+    for part in transform.parts:
         distribution = reduce(distribution, part, **kwargs)
     return distribution
 
@@ -670,9 +741,9 @@ def _reduction_distribution_transform(
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     mask = getattr(transform, "mask", torch.as_tensor(True))
     base_distribution = (
-        MaskedDistribution(distribution, mask, validate_args)
-        if not mask.all()
-        else distribution
+        distribution
+        if mask.all()
+        else MaskedDistribution(distribution, mask, validate_args)
     )
     is_identity_transform = (
         isinstance(transform, ds.ComposeTransform) and not transform.parts

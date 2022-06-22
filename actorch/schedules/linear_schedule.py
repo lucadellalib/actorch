@@ -4,12 +4,12 @@
 
 """Linear schedule."""
 
-from typing import Any, Dict, Sequence, Union
+from typing import Sequence, Union
 
 import numpy as np
 from numpy import ndarray
 
-from actorch.schedules.lambda_schedule import LambdaSchedule
+from actorch.schedules.schedule import Schedule
 
 
 __all__ = [
@@ -17,7 +17,7 @@ __all__ = [
 ]
 
 
-class LinearSchedule(LambdaSchedule):
+class LinearSchedule(Schedule):
     """Linear schedule."""
 
     def __init__(
@@ -41,7 +41,7 @@ class LinearSchedule(LambdaSchedule):
         Raises
         ------
         ValueError
-            If an invalid argument value is provided.
+            If an invalid argument value is given.
 
         """
         try:
@@ -62,29 +62,31 @@ class LinearSchedule(LambdaSchedule):
             raise ValueError(
                 f"`num_timesteps` ({num_timesteps}) must be in the integer interval [1, inf)"
             )
-        self.initial_value = initial_value
-        self.final_value = final_value
-        self.num_timesteps = num_timesteps
-        delta = (final_value - initial_value) / num_timesteps
         batch_size = (initial_value.shape or [None])[0]
-
-        def step_fn(
-            num_elapsed_timesteps: Union[int, ndarray],
-        ) -> "Union[int, float, ndarray]":
-            value = np.where(
-                num_elapsed_timesteps < num_timesteps,
-                initial_value + delta * num_elapsed_timesteps,
-                final_value,
-            )
-            return value if batch_size else value.item()
-
-        super().__init__(step_fn, batch_size)
+        self.initial_value = np.array(initial_value, copy=False, ndmin=1)
+        self.final_value = np.array(final_value, copy=False, ndmin=1)
+        self.num_timesteps = np.array(num_timesteps, copy=False, ndmin=1)
+        self._delta = (self.final_value - self.initial_value) / self.num_timesteps
+        self._is_increasing = self._delta >= 0
+        self._value = np.zeros(batch_size or 1)
+        super().__init__(batch_size)
 
     # override
-    def state_dict(self) -> "Dict[str, Any]":
-        state_dict = super().state_dict()
-        del state_dict["step_fn"]
-        return state_dict
+    def _reset(self, mask: "ndarray") -> "None":
+        self._value[mask] = self.initial_value[mask]
+
+    # override
+    def _step(self, mask: "ndarray") -> "None":
+        self._value += np.where(mask, self._delta, 0.)
+        min_value = self._value.clip(max=self.final_value)
+        max_value = self._value.clip(min=self.final_value)
+        self._value = np.where(
+            self._is_increasing, min_value, max_value
+        )
+
+    def __call__(self) -> "Union[int, float, ndarray]":
+        value = np.array(self._value)  # Copy
+        return value if self.batch_size else value.item()
 
     def __repr__(self) -> "str":
         return (

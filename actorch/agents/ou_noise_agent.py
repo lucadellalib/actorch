@@ -13,7 +13,7 @@ from torch import device
 
 from actorch.agents.deterministic_agent import DeterministicAgent
 from actorch.agents.stochastic_agent import StochasticAgent
-from actorch.registry import register
+from actorch.networks import PolicyNetwork
 
 
 __all__ = [
@@ -21,7 +21,6 @@ __all__ = [
 ]
 
 
-@register
 class OUNoiseAgent(StochasticAgent, DeterministicAgent):
     """Agent that adds Ornstein-Uhlenbeck noise to the action.
 
@@ -35,7 +34,7 @@ class OUNoiseAgent(StochasticAgent, DeterministicAgent):
 
     def __init__(
         self,
-        policy: "Policy",
+        policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
         is_batched: "bool" = False,
@@ -49,8 +48,8 @@ class OUNoiseAgent(StochasticAgent, DeterministicAgent):
 
         Parameters
         ----------
-        policy:
-            The policy.
+        policy_network:
+            The policy network.
         observation_space:
             The (possibly batched) observation space.
         action_space:
@@ -93,7 +92,7 @@ class OUNoiseAgent(StochasticAgent, DeterministicAgent):
         self._ou_state = np.full(self._batch_size or 1, mean)
         StochasticAgent.__init__(
             self,
-            policy,
+            policy_network,
             observation_space,
             action_space,
             is_batched,
@@ -126,7 +125,7 @@ class OUNoiseAgent(StochasticAgent, DeterministicAgent):
     def __repr__(self) -> "str":
         return (
             f"{self.__class__.__name__}"
-            f"(policy: {self.policy}, "
+            f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
             f"is_batched: {self.is_batched}, "

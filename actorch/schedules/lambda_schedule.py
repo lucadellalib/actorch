@@ -31,9 +31,8 @@ class LambdaSchedule(Schedule):
         ----------
         step_fn:
             The function that defines the time-dependent scheduling schema.
-            This function receives as an argument the (possibly batched) number of
-            elapsed timesteps, and returns the corresponding (possibly batched)
-            schedule value.
+            It receives as an argument the (possibly batched) number of elapsed
+            timesteps and returns the corresponding (possibly batched) schedule value.
         batch_size:
             The batch size.
 

@@ -10,7 +10,7 @@
 
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, NamedTuple, Optional, OrderedDict
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -20,15 +20,13 @@ from torch.cuda.amp import GradScaler
 from torch.distributions.kl import _Match as Match
 from torch.optim import Optimizer
 
-from actorch.registry import register
-
 
 __all__ = [
     "KFAC",
 ]
 
 
-class _KFACModule(ABC, nn.Module):
+class KFACModule(ABC, nn.Module):
     """Wrap a module to make it compatible with K-FAC preconditioner."""
 
     def __init__(self, module: "nn.Module") -> "None":
@@ -51,29 +49,28 @@ class _KFACModule(ABC, nn.Module):
     # override
     def state_dict(
         self,
-        destination: "Optional[OrderedDict[str, Tensor]]" = None,
+        destination: "Optional[Dict[str, Tensor]]" = None,
         prefix: "str" = "",
         keep_vars: "bool" = False,
-    ) -> "OrderedDict[str, Tensor]":
-        state_dict = super().state_dict(destination, prefix, keep_vars)
-        state_dict[prefix + "a"], state_dict[prefix + "g"] = self.a, self.g
-        state_dict[prefix + "_A"], state_dict[prefix + "_G"] = self._A, self._G
-        state_dict[prefix + "_dA"], state_dict[prefix + "_dG"] = self._dA, self._dG
-        state_dict[prefix + "_QA"], state_dict[prefix + "_QG"] = self._QA, self._QG
-        return state_dict
+    ) -> "Dict[str, Tensor]":
+        if destination is None:
+            destination = {}
+        destination[prefix + "a"], destination[prefix + "g"] = self.a, self.g
+        destination[prefix + "_A"], destination[prefix + "_G"] = self._A, self._G
+        destination[prefix + "_dA"], destination[prefix + "_dG"] = self._dA, self._dG
+        destination[prefix + "_QA"], destination[prefix + "_QG"] = self._QA, self._QG
+        return destination
 
     # override
     def load_state_dict(
         self,
-        state_dict: "OrderedDict[str, Tensor]",
+        state_dict: "Dict[str, Tensor]",
         strict: "bool" = True,
-    ) -> "NamedTuple":
-        state_dict = state_dict.copy()
-        self.a, self.g = state_dict.pop("a"), state_dict.pop("g")
-        self._A, self._G = state_dict.pop("_A"), state_dict.pop("_G")
-        self._dA, self._dG = state_dict.pop("_dA"), state_dict.pop("_dG")
-        self._QA, self._QG = state_dict.pop("_QA"), state_dict.pop("_QG")
-        return super().load_state_dict(state_dict, strict)
+    ) -> "None":
+        self.a, self.g = state_dict["a"], state_dict["g"]
+        self._A, self._G = state_dict["_A"], state_dict["_G"]
+        self._dA, self._dG = state_dict["_dA"], state_dict["_dG"]
+        self._QA, self._QG = state_dict["_QA"], state_dict["_QG"]
 
     def update_AG(self, decay: "float") -> "None":
         """Update Fisher factors A and G.
@@ -96,7 +93,7 @@ class _KFACModule(ABC, nn.Module):
         self._update_exp_moving_average(self._G, G, decay)
 
     def update_eigen_AG(self, epsilon: "float") -> "None":
-        """Update the eigenvalues and eigenvectors of A and G.
+        """Update eigenvalues and eigenvectors of A and G.
 
         Parameters
         ----------
@@ -194,7 +191,7 @@ class _KFACModule(ABC, nn.Module):
         raise NotImplementedError
 
 
-class _KFACLinear(_KFACModule):
+class KFACLinear(KFACModule):
     """K-FAC linear layer wrapper."""
 
     # override
@@ -230,7 +227,7 @@ class _KFACLinear(_KFACModule):
         return g.t() @ (g / g.shape[0])
 
 
-class _KFACConvNd(_KFACLinear):
+class KFACConvNd(KFACLinear):
     """K-FAC N-D convolutional layer wrapper.
 
     References
@@ -276,7 +273,6 @@ class _KFACConvNd(_KFACLinear):
         return x
 
 
-@register
 class KFAC(Optimizer):
     """Kronecker-factored approximate curvature preconditioner.
 
@@ -309,10 +305,10 @@ class KFAC(Optimizer):
     """
 
     _SUPPORTED_MODULE_TYPES = {
-        nn.Linear: _KFACLinear,
-        nn.Conv1d: _KFACConvNd,
-        nn.Conv2d: _KFACConvNd,
-        nn.Conv3d: _KFACConvNd,
+        nn.Linear: KFACLinear,
+        nn.Conv1d: KFACConvNd,
+        nn.Conv2d: KFACConvNd,
+        nn.Conv3d: KFACConvNd,
     }
 
     def __init__(
@@ -354,7 +350,7 @@ class KFAC(Optimizer):
         Raises
         ------
         ValueError
-            If an invalid argument value is provided.
+            If an invalid argument value is given.
 
         """
         if lr <= 0.0:
@@ -479,7 +475,7 @@ class KFAC(Optimizer):
 
             v = module.get_preconditioned_grad(self.damping)
             vs.append(v)
-            vg_sum += (v * module.grad * self.lr ** 2).sum()
+            vg_sum += (v * module.grad * self.lr**2).sum()
 
         nu = (self.kl_clip / vg_sum).sqrt().clip(max=1.0).item()
 
@@ -490,7 +486,7 @@ class KFAC(Optimizer):
         self._steps += 1
 
     @property
-    def _modules(self) -> "Dict[nn.Module, _KFACModule]":
+    def _modules(self) -> "Dict[nn.Module, KFACModule]":
         if "_modules" not in self.state:
             self.state["_modules"] = {}
         return self.state["_modules"]

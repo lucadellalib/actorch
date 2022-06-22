@@ -167,13 +167,21 @@ def is_affine(transform: "Transform") -> "bool":
     """
     if hasattr(transform, "is_constant_jacobian"):
         return transform.is_constant_jacobian
+    if isinstance(
+        transform, (distributions.CatTransform, distributions.StackTransform)
+    ):
+        return all(is_affine(t) for t in transform.transforms)
     if isinstance(transform, distributions.ComposeTransform):
         return all(is_affine(t) for t in transform.parts)
     if isinstance(transform, distributions.IndependentTransform):
         return is_affine(transform.base_transform)
-    return isinstance(transform, distributions.AffineTransform)
+    return isinstance(
+        transform,
+        (distributions.AffineTransform, distributions.ReshapeTransform),
+    )
 
 
+@singledispatch
 def is_scaling(transform: "Transform") -> "bool":
     """Check if a transform is a scaling.
 
@@ -186,8 +194,32 @@ def is_scaling(transform: "Transform") -> "bool":
     -------
         True if the transform is a scaling, False otherwise.
 
+    Notes
+    -----
+    Register a custom transform type as follows:
+    >>> from torch.distributions import Transform
+    >>>
+    >>> from actorch.distributions.utils import is_scaling
+    >>>
+    >>>
+    >>> class Custom(Transform):
+    >>>     # Implementation
+    >>>
+    >>>
+    >>> @is_scaling.register(Custom)
+    >>> def _is_scaling_custom(transform):
+    >>>     # Implementation
+
     """
-    if not is_affine(transform):
-        return False
-    shift = transform(torch.zeros((1,) * transform.domain.event_dim))
-    return (shift == 0).all().item()
+    if isinstance(
+        transform, (distributions.CatTransform, distributions.StackTransform)
+    ):
+        return all(is_scaling(t) for t in transform.transforms)
+    if isinstance(transform, distributions.ComposeTransform):
+        return all(is_scaling(t) for t in transform.parts)
+    if isinstance(transform, distributions.IndependentTransform):
+        return is_scaling(transform.base_transform)
+    return (
+        isinstance(transform, distributions.AffineTransform)
+        and (torch.as_tensor(transform.loc) == 0).all()
+    ) or isinstance(transform, distributions.ReshapeTransform)

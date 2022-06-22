@@ -5,12 +5,13 @@
 """Experience sampler."""
 
 import time
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, Optional, Sequence, Tuple, Union
 
 from gym import Env
 
 from actorch.agents import Agent
 from actorch.envs import BatchedEnv
+from actorch.samplers.callbacks import Callback
 
 
 __all__ = [
@@ -28,7 +29,7 @@ class Sampler:
         self,
         env: "Env",
         agent: "Agent",
-        callback_fns: "Optional[Dict[str, Callable[..., None]]]" = None,
+        callbacks: "Optional[Sequence[Callback]]" = None,
     ) -> "None":
         """Initialize the object.
 
@@ -38,30 +39,16 @@ class Sampler:
             The environment to sample experiences from.
         agent:
             The agent that interacts with the environment.
-        callback_fns:
-            The callback functions, i.e. a dict with the following key-value pairs:
-            - "on_episode_start_fn": the function called after each episode start.
-                                     It receives as arguments the environment,
-                                     the agent, and the sampling statistics;
-            - "on_episode_step_fn":  the function called after each episode step.
-                                     It receives as arguments the environment,
-                                     the agent, the sampling statistics, and the
-                                     auxiliary diagnostic information;
-            - "on_episode_end_fn":   the function called after each episode end.
-                                     It receives as arguments the environment,
-                                     the agent, and the sampling statistics.
-            Default to ``{}``.
+        callbacks:
+            The experience sampler callbacks.
+            Default to ``[]``.
 
         Raises
         ------
         TypeError
-            If `env` is instance of `BatchedEnv`.
+            If `env` is instance of `actorch.envs.BatchedEnv`.
         ValueError
             If observation or action spaces of `agent` and `env` are not equal.
-
-        See Also
-        --------
-        Sampler.stats
 
         """
         if agent.observation_space != env.observation_space:
@@ -76,10 +63,13 @@ class Sampler:
             )
         self.env = env
         self.agent = agent
-        self.callback_fns = callback_fns or {}
+        self.callbacks = callbacks or []
         self.reset()
         if isinstance(env, BatchedEnv):
-            raise TypeError(f"`env` ({env}) must be instance of {BatchedEnv}")
+            raise TypeError(
+                f"`env` ({env}) must be instance of "
+                f"`{BatchedEnv.__module__}.{BatchedEnv.__name__}`"
+            )
 
     @property
     def stats(self) -> "Optional[Dict[str, Any]]":
@@ -99,8 +89,7 @@ class Sampler:
 
         Notes
         -----
-        Callback functions can be used to add custom metrics
-        to the sampling statistics.
+        Callbacks can be used to add custom metrics to the sampling statistics.
 
         """
         return self._stats
@@ -125,48 +114,50 @@ class Sampler:
         ----------
         num_timesteps:
             The number of timesteps to sample.
-            Must be ``None`` if `num_episodes` is provided.
+            Must be None if `num_episodes` is given.
         num_episodes:
             The number of episodes to sample.
-            Must be ``None`` if `num_timesteps` is provided.
+            Must be None if `num_timesteps` is given.
         render:
             True to render the environment, False otherwise.
 
         Yields
         ------
-            The sampled experience, i.e. a dict with the
-            following key-value pairs:
-            - "observation":      the observation;
-            - "action":           the action;
-            - "log_prob":         the action log probability;
-            - "reward":           the reward;
-            - "next_observation": the next observation;
-            - "done":             the end-of-episode flag;
-            the terminal flag (might differ from `done` if
-            the environment has a time limit).
+            - The sampled experience, i.e. a dict with the
+              following key-value pairs:
+              - "observation":      the observation;
+              - "action":           the action;
+              - "log_prob":         the action log probability;
+              - "reward":           the reward;
+              - "next_observation": the next observation;
+              - "done":             the end-of-episode flag;
+            - the terminal flag (might differ from `done` if
+              the environment has a time limit).
 
         Raises
         ------
         ValueError
             If both or none of `num_timesteps` and `num_episodes`
-            are provided or if `num_timesteps` or `num_episodes`
+            are given or if `num_timesteps` or `num_episodes`
             are not in the integer interval [1, inf].
 
         """
         if not (bool(num_timesteps) ^ bool(num_episodes)):
             raise ValueError(
-                "Either `num_timesteps` or `num_episodes` must be provided, but not both"
+                f"Either `num_timesteps` ({num_timesteps}) "
+                f"or `num_episodes` ({num_episodes}) must be "
+                f"given, but not both"
             )
         if num_timesteps is not None and num_timesteps != float("inf"):
-            if num_timesteps < 1 or not float(num_timesteps).is_integer():
+            if num_timesteps < 0 or not float(num_timesteps).is_integer():
                 raise ValueError(
-                    f"`num_timesteps` ({num_timesteps}) must be in the integer interval [1, inf]"
+                    f"`num_timesteps` ({num_timesteps}) must be in the integer interval [0, inf]"
                 )
             num_timesteps = int(num_timesteps)
         if num_episodes is not None and num_episodes != float("inf"):
-            if num_episodes < 1 or not float(num_episodes).is_integer():
+            if num_episodes < 0 or not float(num_episodes).is_integer():
                 raise ValueError(
-                    f"`num_episodes` ({num_episodes}) must be in the integer interval [1, inf]"
+                    f"`num_episodes` ({num_episodes}) must be in the integer interval [0, inf]"
                 )
             num_episodes = int(num_episodes)
         num_timesteps = num_timesteps or float("inf")
@@ -190,10 +181,6 @@ class Sampler:
         render: "bool",
     ) -> "Iterator[Tuple[Dict[str, Any], bool]]":
         num_sampled_timesteps, num_sampled_episodes = 0, 0
-        # Default callbacks
-        on_episode_start_fn = self.callback_fns.get("on_episode_start_fn")
-        on_episode_step_fn = self.callback_fns.get("on_episode_step_fn")
-        on_episode_end_fn = self.callback_fns.get("on_episode_end_fn")
         while (
             num_sampled_timesteps < num_timesteps
             and num_sampled_episodes < num_episodes
@@ -205,9 +192,9 @@ class Sampler:
                     render_time = time.time()
                     self.env.render()
                     self._stats["render_time_ms"] += (time.time() - render_time) * 1000
-                # Callback
-                if on_episode_start_fn:
-                    on_episode_start_fn(self.env, self.agent, self._stats)
+                # Callbacks
+                for callback in self.callbacks:
+                    callback.on_episode_start(self._stats)
             observation = self._next_observation
             inference_time = time.time()
             action, log_prob = self.agent(observation)
@@ -225,9 +212,9 @@ class Sampler:
             self._cumreward += reward
             num_sampled_timesteps += 1
             self._stats["num_timesteps"] = num_sampled_timesteps
-            # Callback
-            if on_episode_step_fn:
-                on_episode_step_fn(self.env, self.agent, self._stats, info)
+            # Callbacks
+            for callback in self.callbacks:
+                callback.on_episode_step(self._stats, info)
 
             if terminal:
                 self._next_observation = self.env.reset()
@@ -243,9 +230,9 @@ class Sampler:
                 self._stats["num_episodes"] = num_sampled_episodes
                 self.agent.reset()
                 done = not info.get("TimeLimit.truncated", not terminal)
-                # Callback
-                if on_episode_end_fn:
-                    on_episode_end_fn(self.env, self.agent, self._stats)
+                # Callbacks
+                for callback in self.callbacks:
+                    callback.on_episode_end(self._stats)
 
             experience = {
                 "observation": observation,
@@ -262,5 +249,5 @@ class Sampler:
             f"{self.__class__.__name__}"
             f"(env: {self.env}, "
             f"agent: {self.agent}, "
-            f"callback_fns: {self.callback_fns})"
+            f"callbacks: {self.callbacks})"
         )

@@ -4,9 +4,9 @@
 
 """Models."""
 
-from actorch.models.conv import *
-from actorch.models.fc import *
+from actorch.models.conv_net import *
+from actorch.models.fc_net import *
 from actorch.models.hydra import *
+from actorch.models.lstm_net import *
 from actorch.models.model import *
 from actorch.models.modules import *
-from actorch.models.recurrent import *

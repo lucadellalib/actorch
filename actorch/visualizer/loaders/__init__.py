@@ -2,7 +2,7 @@
 # Copyright 2022 Luca Della Libera. All Rights Reserved.
 # ==============================================================================
 
-"""Loaders."""
+"""Progress loaders."""
 
 from actorch.visualizer.loaders.csv_loader import *
 from actorch.visualizer.loaders.loader import *

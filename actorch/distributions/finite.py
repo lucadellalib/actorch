@@ -12,7 +12,6 @@ from torch.distributions import Distribution, OneHotCategorical, constraints
 from torch.distributions.constraints import Constraint
 
 from actorch.distributions.constraints import ordered_real_vector, real_set
-from actorch.registry import register
 
 
 __all__ = [
@@ -20,7 +19,6 @@ __all__ = [
 ]
 
 
-@register
 class Finite(Distribution):
     """Distribution defined over an arbitrary finite support.
 
@@ -58,10 +56,10 @@ class Finite(Distribution):
         ----------
         probs:
             The event probabilities.
-            Must be ``None`` if `logits` is provided.
+            Must be None if `logits` is given.
         logits:
             The event log probabilities (unnormalized).
-            Must be ``None`` if `probs` is provided.
+            Must be None if `probs` is given.
         atoms:
             The atoms that form the support of the distribution, sorted in (strict) ascending order.
             Default to `{0, ..., N - 1}` where `N` is ``probs.shape[-1]`` or ``logits.shape[-1]``.
@@ -119,7 +117,7 @@ class Finite(Distribution):
     # override
     @property
     def variance(self) -> "Tensor":
-        return (self.probs * (self.atoms ** 2)).sum(dim=-1) - self.mean ** 2
+        return (self.probs * (self.atoms**2)).sum(dim=-1) - self.mean**2
 
     # override
     def sample(self, sample_shape: "Size" = torch.Size()) -> "Tensor":  # noqa: B008
