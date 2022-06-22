@@ -29,6 +29,7 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
 
     class Config(dict):
         """Keyword arguments expected in the configuration received by `setup`."""
+
         def __init__(
             self,
             bundles: "Optional[Sequence[Dict[str, Union[int, float]]]]" = None,
@@ -67,7 +68,8 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
     @classmethod
     def resource_help(cls, config: "Dict[str, Any]") -> "str":
         return (
-            "The following keyword arguments should be given to configure the resources:" + "\n"
+            "The following keyword arguments should be given to configure the resources:"
+            + "\n"
             "    bundles:" + "\n"
             "        The bundles, i.e. a sequence of dicts that map resource" + "\n"
             "        names to their corresponding requested quantities." + "\n"
@@ -87,7 +89,9 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
 
         # Setup placement group if necessary
         if not get_current_placement_group():
-            default_resource_request = DistributedTrainable.default_resource_request(config)
+            default_resource_request = DistributedTrainable.default_resource_request(
+                config
+            )
             self._placement_group = default_resource_request()
             ray.get(self._placement_group.ready())
 
@@ -106,7 +110,9 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
 
     # override
     @abstractmethod
-    def save_checkpoint(self, tmp_checkpoint_dir: "str") -> "Union[str, Dict[str, Any]]":
+    def save_checkpoint(
+        self, tmp_checkpoint_dir: "str"
+    ) -> "Union[str, Dict[str, Any]]":
         raise NotImplementedError
 
     # override

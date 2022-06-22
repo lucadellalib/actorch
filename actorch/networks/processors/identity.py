@@ -43,7 +43,4 @@ class Identity(Processor):
         return input
 
     def __repr__(self) -> "str":
-        return (
-            f"{self.__class__.__name__}"
-            f"(shape: {self.shape})"
-        )
+        return f"{self.__class__.__name__}" f"(shape: {self.shape})"

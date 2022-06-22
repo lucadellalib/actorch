@@ -59,7 +59,9 @@ class Base2Dec(Processor):
         return self._out_shape
 
     def __call__(self, input: "Tensor") -> "Tensor":
-        if ((input < 0) | (input >= self.base.expand_as(input)) | (input != input.int())).any():
+        if (
+            (input < 0) | (input >= self.base.expand_as(input)) | (input != input.int())
+        ).any():
             raise ValueError(
                 f"`input` ({input}) must be in the integer interval "
                 f"[{torch.zeros_like(self.base)}, {self.base})"
@@ -67,7 +69,4 @@ class Base2Dec(Processor):
         return (self._weights * input).sum(dim=-1).int()
 
     def __repr__(self) -> "str":
-        return (
-            f"{self.__class__.__name__}"
-            f"(base: {self.base})"
-        )
+        return f"{self.__class__.__name__}" f"(base: {self.base})"

@@ -128,7 +128,9 @@ class PolicyNetwork(Network):
         if postprocessors:
             for modality_name in out_modality_names:
                 if modality_name not in postprocessors:
-                    postprocessors[modality_name] = Identity(self._event_shapes[modality_name])
+                    postprocessors[modality_name] = Identity(
+                        self._event_shapes[modality_name]
+                    )
         self.sample_fn = sample_fn or (lambda distribution: distribution.mean)
         self.prediction_fn = prediction_fn or (lambda sample: sample)
         self.postprocessors = postprocessors

@@ -5,7 +5,6 @@
 """Synchronous distributed trainable."""
 
 import os
-
 from abc import abstractmethod
 from copy import deepcopy
 from typing import Any, Callable, Dict, List, Optional, Sequence, Type, TypeVar, Union
@@ -54,7 +53,6 @@ class SyncDistributedTrainable(DistributedTrainable):
     """
 
     class Config(dict):
-
         def __init__(
             self,
             num_workers: "int" = 1,
@@ -161,10 +159,9 @@ class SyncDistributedTrainable(DistributedTrainable):
                 backend=backend,
                 timeout_s=timeout_s,
                 node_syncer_builder=node_syncer_builder or get_node_syncer,
-                node_syncer_config=node_syncer_config if node_syncer_config is not None else (
-                    {"sync_function": True} if node_syncer_builder is None
-                    else {}
-                ),
+                node_syncer_config=node_syncer_config
+                if node_syncer_config is not None
+                else ({"sync_function": True} if node_syncer_builder is None else {}),
                 worker_init_fn=worker_init_fn,
                 worker_config=worker_config,
             )
@@ -177,31 +174,48 @@ class SyncDistributedTrainable(DistributedTrainable):
     ) -> "PlacementGroupFactory":
         config = SyncDistributedTrainable.Config(**config)
         worker_cls = cls.get_worker_cls()
-        default_resource_request = worker_cls.default_resource_request(config["worker_config"])
+        default_resource_request = worker_cls.default_resource_request(
+            config["worker_config"]
+        )
         if isinstance(default_resource_request, Resources):
-            default_resource_request = resource_dict_to_pg_factory(default_resource_request)
-        default_resources = default_resource_request.required_resources if default_resource_request else {}
+            default_resource_request = resource_dict_to_pg_factory(
+                default_resource_request
+            )
+        default_resources = (
+            default_resource_request.required_resources
+            if default_resource_request
+            else {}
+        )
         # Define resources per worker
         num_workers = config["num_workers"]
-        num_cpus_per_worker = max(config["num_cpus_per_worker"], default_resources.pop("CPU", 1))
-        num_gpus_per_worker = max(config["num_gpus_per_worker"], default_resources.pop("GPU", 0))
+        num_cpus_per_worker = max(
+            config["num_cpus_per_worker"], default_resources.pop("CPU", 1)
+        )
+        num_gpus_per_worker = max(
+            config["num_gpus_per_worker"], default_resources.pop("GPU", 0)
+        )
         extra_resources_per_worker = config["extra_resources_per_worker"]
         for k, v in extra_resources_per_worker:
             extra_resources_per_worker[k] = max(v, default_resources.pop(k, 0))
         placement_strategy = config["placement_strategy"]
         bundles = [{"CPU": 1}]
-        bundles += [{
-            "CPU": num_cpus_per_worker,
-            "GPU": num_gpus_per_worker,
-            **extra_resources_per_worker,
-        }] * num_workers
-        return super().default_resource_request(super().Config(bundles, placement_strategy))
+        bundles += [
+            {
+                "CPU": num_cpus_per_worker,
+                "GPU": num_gpus_per_worker,
+                **extra_resources_per_worker,
+            }
+        ] * num_workers
+        return super().default_resource_request(
+            super().Config(bundles, placement_strategy)
+        )
 
     # override
     @classmethod
     def resource_help(cls, config: "Dict[str, Any]") -> "str":
         return (
-            "The following keyword arguments should be given to configure the resources:" + "\n"
+            "The following keyword arguments should be given to configure the resources:"
+            + "\n"
             "    num_workers:" + "\n"
             "        The number of workers." + "\n"
             "    num_cpus_per_worker:" + "\n"
@@ -250,10 +264,12 @@ class SyncDistributedTrainable(DistributedTrainable):
 
         # If multi-node, set up node syncer
         ip = self.get_current_ip()
-        self._remote_node_ips = list(filter(
-            lambda worker_ip: worker_ip != ip,
-            ray.get([worker.get_current_ip.remote() for worker in self._workers])
-        ))
+        self._remote_node_ips = list(
+            filter(
+                lambda worker_ip: worker_ip != ip,
+                ray.get([worker.get_current_ip.remote() for worker in self._workers]),
+            )
+        )
         self._node_syncer = None
         if self._remote_node_ips:
             self._node_syncer = self.node_syncer_builder(
@@ -263,16 +279,19 @@ class SyncDistributedTrainable(DistributedTrainable):
     # override
     def reset_config(self, new_config: "Dict[str, Any]") -> "bool":
         new_config = SyncDistributedTrainable.Config(**new_config)
-        if any([
-            self.num_workers != new_config["num_workers"],
-            self.num_cpus_per_worker != new_config["num_cpus_per_worker"],
-            self.num_gpus_per_worker != new_config["num_gpus_per_worker"],
-            self.extra_resources_per_worker != new_config["extra_resources_per_worker"],
-            self.placement_strategy != new_config["placement_strategy"],
-            self.backend != new_config["backend"],
-            self.timeout_s != new_config["timeout_s"],
-            self.worker_init_fn.__code__ != new_config["worker_init_fn"].__code__,
-        ]):
+        if any(
+            [
+                self.num_workers != new_config["num_workers"],
+                self.num_cpus_per_worker != new_config["num_cpus_per_worker"],
+                self.num_gpus_per_worker != new_config["num_gpus_per_worker"],
+                self.extra_resources_per_worker
+                != new_config["extra_resources_per_worker"],
+                self.placement_strategy != new_config["placement_strategy"],
+                self.backend != new_config["backend"],
+                self.timeout_s != new_config["timeout_s"],
+                self.worker_init_fn.__code__ != new_config["worker_init_fn"].__code__,
+            ]
+        ):
             return False
 
         self.config = deepcopy(new_config)
@@ -281,13 +300,17 @@ class SyncDistributedTrainable(DistributedTrainable):
         self._has_finished = False
 
         if self._node_syncer:
-            self._node_syncer = self.node_syncer_builder(self.logdir, self.logdir, **self.node_syncer_config)
+            self._node_syncer = self.node_syncer_builder(
+                self.logdir, self.logdir, **self.node_syncer_config
+            )
 
         new_worker_config = self.build_config(self.worker_config)
         return all(
-            ray.get([
-                worker.reset_config.remote(new_worker_config)
-                for worker in self._workers]
+            ray.get(
+                [
+                    worker.reset_config.remote(new_worker_config)
+                    for worker in self._workers
+                ]
             )
         )
 
@@ -295,7 +318,9 @@ class SyncDistributedTrainable(DistributedTrainable):
     def step(self) -> "Dict[str, Any]":
         if self._has_finished:
             raise RuntimeError("Training has already finished")
-        result = self._reduce(ray.get([worker.step.remote() for worker in self._workers]))
+        result = self._reduce(
+            ray.get([worker.step.remote() for worker in self._workers])
+        )
         if RESULT_DUPLICATE in result:
             self._has_finished = True
         return result
@@ -303,7 +328,9 @@ class SyncDistributedTrainable(DistributedTrainable):
     # override
     def save_checkpoint(self, tmp_checkpoint_dir: "str") -> "str":
         checkpoint_obj = ray.get(self._workers[0].save_to_object.remote())
-        checkpoint_filepath = TrainableUtil.create_from_pickle(checkpoint_obj, tmp_checkpoint_dir)
+        checkpoint_filepath = TrainableUtil.create_from_pickle(
+            checkpoint_obj, tmp_checkpoint_dir
+        )
         for ip in self._remote_node_ips:
             self._node_syncer.set_worker_ip(ip)
             self._node_syncer.sync_down()
@@ -312,10 +339,12 @@ class SyncDistributedTrainable(DistributedTrainable):
     # override
     def load_checkpoint(self, checkpoint: "str") -> "None":
         checkpoint_obj = TrainableUtil.checkpoint_to_object(checkpoint)
-        ray.get([
-            worker.restore_from_object.remote(checkpoint_obj)
-            for worker in self._workers
-        ])
+        ray.get(
+            [
+                worker.restore_from_object.remote(checkpoint_obj)
+                for worker in self._workers
+            ]
+        )
 
     # override
     def cleanup(self) -> "None":
@@ -330,11 +359,7 @@ class SyncDistributedTrainable(DistributedTrainable):
         export_formats: "Union[str, Sequence[str]]",
         export_dir: "Optional[str]" = None,
     ) -> "Dict[str, str]":
-        return ray.get(
-            self._workers[0].export_model.remote(
-                export_formats, export_dir
-            )
-        )
+        return ray.get(self._workers[0].export_model.remote(export_formats, export_dir))
 
     def _setup_workers(self, options: "Dict[str, Any]") -> "List[ActorHandle]":
         @ray.remote
@@ -346,17 +371,18 @@ class SyncDistributedTrainable(DistributedTrainable):
             def init(self, *args: "Any", **kwargs: "Any") -> "None":
                 super().__init__(*args, **kwargs)
 
-            def execute(self, fn: "Callable[..., _T]", *fn_args: "Any", **fn_kwargs: "Any") -> "_T":
+            def execute(
+                self, fn: "Callable[..., _T]", *fn_args: "Any", **fn_kwargs: "Any"
+            ) -> "_T":
                 return fn(*fn_args, **fn_kwargs)
 
-        workers = [Worker.options(**options).remote() for rank in range(self.num_workers)]
+        workers = [
+            Worker.options(**options).remote() for rank in range(self.num_workers)
+        ]
 
         # Run worker initialization function
         if self.worker_init_fn:
-            ray.get([
-                worker.execute.remote(self.worker_init_fn)
-                for worker in workers
-            ])
+            ray.get([worker.execute.remote(self.worker_init_fn) for worker in workers])
 
         if self.num_workers > 1:
             if not dist.is_available():
@@ -366,31 +392,39 @@ class SyncDistributedTrainable(DistributedTrainable):
                 )
 
             # Retrieve master address
-            ip, port = ray.get(workers[0].execute.remote(train.utils.get_address_and_port))
+            ip, port = ray.get(
+                workers[0].execute.remote(train.utils.get_address_and_port)
+            )
 
             # Setup process group
-            ray.get([
-                worker.execute.remote(
-                    train.torch.setup_torch_process_group,
-                    backend=self.backend,
-                    world_rank=rank,
-                    world_size=self.num_workers,
-                    init_method=f"tcp://{ip}:{port}",
-                    timeout_s=self.timeout_s,
-                )
-                for rank, worker in enumerate(workers)
-            ])
+            ray.get(
+                [
+                    worker.execute.remote(
+                        train.torch.setup_torch_process_group,
+                        backend=self.backend,
+                        world_rank=rank,
+                        world_size=self.num_workers,
+                        init_method=f"tcp://{ip}:{port}",
+                        timeout_s=self.timeout_s,
+                    )
+                    for rank, worker in enumerate(workers)
+                ]
+            )
 
         # Setup workers
         worker_config = self.build_config(self.worker_config)
         workers_dirpath = os.path.join(self.logdir, "workers")
-        ray.get([
-            worker.init.remote(
-                config=worker_config,
-                logger_creator=lambda config: logger_creator(worker_config, workers_dirpath, rank),
-            )
-            for rank, worker in enumerate(workers)
-        ])
+        ray.get(
+            [
+                worker.init.remote(
+                    config=worker_config,
+                    logger_creator=lambda config: logger_creator(
+                        worker_config, workers_dirpath, rank
+                    ),
+                )
+                for rank, worker in enumerate(workers)
+            ]
+        )
         return workers
 
     def _reduce(self, results: "Sequence[Dict[str, Any]]") -> "Dict[str, Any]":
@@ -400,7 +434,9 @@ class SyncDistributedTrainable(DistributedTrainable):
         for k, v in reduced.items():
             value = None
             if isinstance(v, float):
-                value = np.asarray([v] + [result[k] for result in results[1:] if k in result])
+                value = np.asarray(
+                    [v] + [result[k] for result in results[1:] if k in result]
+                )
             if isinstance(v, np.ndarray):
                 arrays = [v] + [result[k] for result in results[1:] if k in result]
                 value = np.concatenate(arrays)
@@ -409,7 +445,8 @@ class SyncDistributedTrainable(DistributedTrainable):
                 value = torch.cat(tensors).numpy()
             if value is not None:
                 reduced[k] = (
-                    value.mean(axis=0) if self.reduction_mode == "mean"
+                    value.mean(axis=0)
+                    if self.reduction_mode == "mean"
                     else value.sum(axis=0)
                 )
         return reduced

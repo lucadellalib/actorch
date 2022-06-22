@@ -82,12 +82,10 @@ class ExponentialSchedule(Schedule):
 
     # override
     def _step(self, mask: "ndarray") -> "None":
-        self._value *= np.where(mask, self._rate, 1.)
+        self._value *= np.where(mask, self._rate, 1.0)
         min_value = self._value.clip(max=self.final_value)
         max_value = self._value.clip(min=self.final_value)
-        self._value = np.where(
-            self._is_increasing, min_value, max_value
-        )
+        self._value = np.where(self._is_increasing, min_value, max_value)
 
     def __call__(self) -> "Union[int, float, ndarray]":
         value = np.array(self._value)  # Copy

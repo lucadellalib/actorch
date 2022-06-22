@@ -27,11 +27,7 @@ __all__ = [
 
 
 DistributionParametrization = Dict[
-    str,
-    Tuple[
-        Dict[str, Tuple[int, ...]],
-        Callable[[Dict[str, Tensor]], Tensor]
-    ]
+    str, Tuple[Dict[str, Tuple[int, ...]], Callable[[Dict[str, Tensor]], Tensor]]
 ]
 """A dict that maps names of a distribution initialization
 arguments to pairs with the following values:
@@ -166,7 +162,8 @@ class Network(nn.Module):
                     key = f"{modality_name}/{param_name}"
                     if key in model_out_shapes:
                         param_names = [
-                            param_name for param_name in params
+                            param_name
+                            for param_name in params
                             for params, _ in parametrization.values()
                         ]
                         raise ValueError(
@@ -202,10 +199,13 @@ class Network(nn.Module):
             ) -> "Tuple[Tensor, Optional[Tensor]]":
                 model_inputs = self._unflatten(input, self.preprocessors)
                 model_states = (
-                    None if state is None
+                    None
+                    if state is None
                     else self._unflatten(state, self._state_preprocessors)
                 )
-                model_outputs, model_states = this.model(model_inputs, model_states, mask)
+                model_outputs, model_states = this.model(
+                    model_inputs, model_states, mask
+                )
                 output = self._flatten(model_outputs, self._output_postprocessors)
                 state = self._flatten(model_states, self._state_postprocessors)
                 return output, state
@@ -256,7 +256,10 @@ class Network(nn.Module):
                 parametrization = self.distribution_parametrizations[modality_name]
                 kwargs = {
                     arg_name: aggregation_fn(
-                        {param_name: model_outputs[f"{modality_name}/{param_name}"] for param_name in params}
+                        {
+                            param_name: model_outputs[f"{modality_name}/{param_name}"]
+                            for param_name in params
+                        }
                     )
                     for arg_name, (params, aggregation_fn) in parametrization.items()
                 }
@@ -277,7 +280,9 @@ class Network(nn.Module):
                     event_shape = distribution.event_shape
                     if modality_name in self.normalizing_flows:
                         normalizing_flow = self.normalizing_flows[modality_name]
-                        event_shape = torch.Size(normalizing_flow.forward_shape(event_shape))
+                        event_shape = torch.Size(
+                            normalizing_flow.forward_shape(event_shape)
+                        )
                     self._event_shapes[modality_name] = event_shape
                 transforms = []
                 if modality_name in self.normalizing_flows:
@@ -289,9 +294,15 @@ class Network(nn.Module):
                         ReshapeTransform(event_shape, (event_shape.numel(),))
                     )
                 if transforms:
-                    distribution = TransformedDistribution(distribution, transforms).reduced_dist
+                    distribution = TransformedDistribution(
+                        distribution, transforms
+                    ).reduced_dist
                 distributions.append(distribution)
-            result = CatDistribution(distributions) if len(distributions) > 1 else distributions[0]
+            result = (
+                CatDistribution(distributions)
+                if len(distributions) > 1
+                else distributions[0]
+            )
             self._cache["distribution"] = result
         return result
 

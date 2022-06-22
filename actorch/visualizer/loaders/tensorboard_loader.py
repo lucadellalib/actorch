@@ -4,6 +4,7 @@
 
 """TensorBoard progress loader."""
 
+from argparse import ArgumentParser
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
@@ -53,3 +54,9 @@ class TensorBoardLoader(Loader):
             y_with_gaps[np.digitize(x, reference_x) - 1] = y
             data[tag] = y_with_gaps
         return data
+
+    # override
+    @classmethod
+    def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
+        parser_kwargs.setdefault("description", "Load TensorBoard progress files")
+        return super().get_default_parser(**parser_kwargs)

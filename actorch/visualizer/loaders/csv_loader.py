@@ -5,6 +5,7 @@
 """CSV progress loader."""
 
 import csv
+from argparse import ArgumentParser
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
@@ -50,3 +51,9 @@ class CSVLoader(Loader):
                 except ValueError:
                     pass
         return data
+
+    # override
+    @classmethod
+    def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
+        parser_kwargs.setdefault("description", "Load CSV progress files")
+        return super().get_default_parser(**parser_kwargs)

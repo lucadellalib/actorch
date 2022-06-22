@@ -16,6 +16,7 @@ __all__ = [
 
 class Processor:
     """Injective tensor-to-tensor transform."""
+
     def __repr__(self) -> "str":
         return f"{self.__class__.__name__}()"
 

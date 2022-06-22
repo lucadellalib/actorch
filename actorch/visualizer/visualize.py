@@ -22,13 +22,13 @@ class Visualize:
     """Visualize experiment progress."""
 
     _LOADER_TYPES = {
-        "csv": (CSVLoader, "load CSV progress files"),
-        "tensorboard": (TensorBoardLoader, "load TensorBoard progress files"),
+        "csv": CSVLoader,
+        "tensorboard": TensorBoardLoader,
     }
 
     _PLOTTER_TYPES = {
-        "matplotlib": (MatplotlibPlotter, "generate plots through Matplotlib backend"),
-        "plotly": (PlotlyPlotter, "generate plots through Plotly backend"),
+        "matplotlib": MatplotlibPlotter,
+        "plotly": PlotlyPlotter,
     }
 
     def main(self, args: "Namespace") -> "None":
@@ -78,21 +78,36 @@ class Visualize:
         subparsers = parser.add_subparsers(
             title="backend", dest="backend", required=True
         )
-        for backend, (plotter_cls, backend_help) in cls._PLOTTER_TYPES.items():
-            backend_parser = subparsers.add_parser(backend, help=backend_help)
-            backend_subparsers = backend_parser.add_subparsers(
-                title="input format", dest="input_format", required=True
+        for backend, plotter_cls in cls._PLOTTER_TYPES.items():
+            backend_parser = plotter_cls.get_default_parser()
+            backend_help = backend_description = backend_parser.description
+            if backend_help:
+                backend_help = f"{backend_help[0].lower()}{backend_help[1:]}"
+            backend_input_format_parser = subparsers.add_parser(
+                backend, description=backend_description, help=backend_help
             )
-            for input_format, (
-                loader_cls,
-                input_format_help,
-            ) in cls._LOADER_TYPES.items():
-                backend_subparsers.add_parser(
+            backend_input_format_subparsers = (
+                backend_input_format_parser.add_subparsers(
+                    title="input format", dest="input_format", required=True
+                )
+            )
+            for input_format, loader_cls in cls._LOADER_TYPES.items():
+                input_format_parser = loader_cls.get_default_parser()
+                input_format_help = (
+                    input_format_description
+                ) = input_format_parser.description
+                if input_format_help:
+                    input_format_help = (
+                        f"{input_format_help[0].lower()}{input_format_help[1:]}"
+                    )
+                    input_format_description += f" and {backend_help}"
+                backend_input_format_subparsers.add_parser(
                     input_format,
+                    description=input_format_description,
                     help=input_format_help,
                     parents=[
-                        loader_cls.get_default_parser(),
-                        plotter_cls.get_default_parser(),
+                        input_format_parser,
+                        backend_parser,
                     ],
                     conflict_handler="resolve",
                 )

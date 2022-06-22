@@ -4,10 +4,9 @@
 
 """Custom Ray Tune progress reporters."""
 
-from typing import Any, Dict
-
 import os
 import time
+from typing import Any, Dict
 
 from ray.tune import progress_reporter
 from ray.tune.trial import DEBUG_PRINT_INTERVAL, Trial

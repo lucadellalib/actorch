@@ -53,7 +53,4 @@ class OneHotEncode(Processor):
         return F.one_hot(input, self.num_classes)
 
     def __repr__(self) -> "str":
-        return (
-            f"{self.__class__.__name__}"
-            f"(num_classes: {self.num_classes})"
-        )
+        return f"{self.__class__.__name__}" f"(num_classes: {self.num_classes})"

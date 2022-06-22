@@ -58,11 +58,13 @@ class BufferDataset(IterableDataset):
             )
         self.buffer = buffer
         self.batch_size = (
-            batch_size if isinstance(batch_size, Schedule)
+            batch_size
+            if isinstance(batch_size, Schedule)
             else ConstantSchedule(batch_size)
         )
         self.max_trajectory_length = (
-            max_trajectory_length if isinstance(max_trajectory_length, Schedule)
+            max_trajectory_length
+            if isinstance(max_trajectory_length, Schedule)
             else ConstantSchedule(max_trajectory_length)
         )
         self.num_iters = int(num_iters)

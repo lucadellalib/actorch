@@ -24,37 +24,6 @@ __all__ = [
 class MatplotlibPlotter(Plotter):
     """Plotter based on Matplotlib backend."""
 
-    @classmethod
-    # override
-    def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
-        parser = super().get_default_parser(**parser_kwargs)
-        parser.add_argument(
-            "--figsize",
-            nargs=2,
-            default=(7.5, 6.0),
-            type=float,
-            help="figure size",
-        )
-        parser.add_argument(
-            "-f",
-            "--format",
-            default="png",
-            help="output image format",
-        )
-        parser.add_argument(
-            "-u",
-            "--usetex",
-            action="store_true",
-            help="render text with LaTeX",
-        )
-        parser.add_argument(
-            "--style",
-            default=resources.get("styles/default-style.mplstyle"),
-            help="absolute or relative path to a Matplotlib style file or name of one of Matplotlib built-in styles",
-            dest="style_filepath_or_name",
-        )
-        return parser
-
     # override
     def _plot_traces(
         self,
@@ -129,3 +98,35 @@ class MatplotlibPlotter(Plotter):
             fig.tight_layout()
             plt.savefig(output_filepath, bbox_inches="tight")
             plt.close()
+
+    # override
+    @classmethod
+    def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
+        parser_kwargs.setdefault("description", "Plot using Matplotlib backend")
+        parser = super().get_default_parser(**parser_kwargs)
+        parser.add_argument(
+            "--figsize",
+            nargs=2,
+            default=(7.5, 6.0),
+            type=float,
+            help="figure size",
+        )
+        parser.add_argument(
+            "-f",
+            "--format",
+            default="png",
+            help="output image format",
+        )
+        parser.add_argument(
+            "-u",
+            "--usetex",
+            action="store_true",
+            help="render text with LaTeX",
+        )
+        parser.add_argument(
+            "--style",
+            default=resources.get("styles/default-style.mplstyle"),
+            help="absolute or relative path to a Matplotlib style file or name of one of Matplotlib built-in styles",
+            dest="style_filepath_or_name",
+        )
+        return parser

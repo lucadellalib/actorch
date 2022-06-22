@@ -45,10 +45,18 @@ def test_n_step_return(num_return_steps, standardize_advantage):
         standardize_advantage=standardize_advantage,
         num_return_steps=num_return_steps,
     )
-    assert distributional_targets.mean.isclose(targets, atol=1e-6).all(), f"distributional_targets.mean: {distributional_targets.mean}, \ntargets: {targets}"
-    assert advantages_mean.isclose(advantages, atol=1e-6).all(), f"advantages_mean: {advantages_mean}, \nadvantages: {advantages}"
-    assert isinstance(distributional_targets, MaskedDistribution), distributional_targets
-    assert isinstance(distributional_targets.base_dist, Finite), distributional_targets.base_dist
+    assert distributional_targets.mean.isclose(
+        targets, atol=1e-6
+    ).all(), f"distributional_targets.mean: {distributional_targets.mean}, \ntargets: {targets}"
+    assert advantages_mean.isclose(
+        advantages, atol=1e-6
+    ).all(), f"advantages_mean: {advantages_mean}, \nadvantages: {advantages}"
+    assert isinstance(
+        distributional_targets, MaskedDistribution
+    ), distributional_targets
+    assert isinstance(
+        distributional_targets.base_dist, Finite
+    ), distributional_targets.base_dist
 
 
 if __name__ == "__main__":

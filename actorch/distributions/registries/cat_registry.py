@@ -13,7 +13,10 @@ from actorch.distributions.cat_distribution import CatDistribution
 from actorch.distributions.deterministic import Deterministic
 from actorch.distributions.finite import Finite
 from actorch.distributions.masked_distribution import MaskedDistribution
-from actorch.distributions.registries.reduction_registry import reduce, register_reduction
+from actorch.distributions.registries.reduction_registry import (
+    reduce,
+    register_reduction,
+)
 
 
 __all__ = []
@@ -40,9 +43,9 @@ def _is_cat_cat(
 def _has_stackable_logits(cat_distribution: "CatDistribution") -> "bool":
     dim = len(cat_distribution.batch_shape) + cat_distribution.dim + 1
     shape = cat_distribution.base_dists[0].logits.shape
-    shape = shape[:dim] + shape[dim + 1:]
+    shape = shape[:dim] + shape[dim + 1 :]
     for base_dist in cat_distribution.base_dists[1:]:
-        if base_dist.logits.shape[:dim] + base_dist.logits.shape[dim + 1:] != shape:
+        if base_dist.logits.shape[:dim] + base_dist.logits.shape[dim + 1 :] != shape:
             return False
     return True
 
@@ -69,27 +72,32 @@ def _reduction_cat_cat(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Bernoulli) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.Bernoulli) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Categorical) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.Categorical) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.ContinuousBernoulli) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.ContinuousBernoulli) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Geometric) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.Geometric) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.OneHotCategorical) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.OneHotCategorical) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 def _reduction_cat_logits_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -98,7 +106,9 @@ def _reduction_cat_logits_transform(
     dim = len(distribution.batch_shape) + distribution.dim
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     logits = torch.stack(logits, dim=dim)
-    base_distribution = type(distribution.base_dists[0])(logits=logits, validate_args=validate_args)
+    base_distribution = type(distribution.base_dists[0])(
+        logits=logits, validate_args=validate_args
+    )
     return reduce(
         ds.Independent(base_distribution, 1, validate_args),
         transform,
@@ -109,22 +119,26 @@ def _reduction_cat_logits_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Beta) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Beta) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Kumaraswamy) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Kumaraswamy) for b in d.base_dists),
 )
 def _reduction_cat_concentration1_concentration0_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    concentration1s, concentration0s = zip(*[(b.concentration1, b.concentration0) for b in distribution.base_dists])
+    concentration1s, concentration0s = zip(
+        *[(b.concentration1, b.concentration0) for b in distribution.base_dists]
+    )
     dim = len(distribution.batch_shape) + distribution.dim
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     concentration1 = torch.stack(concentration1s, dim=dim)
     concentration0 = torch.stack(concentration0s, dim=dim)
-    base_distribution = type(distribution.base_dists[0])(concentration1, concentration0, validate_args)
+    base_distribution = type(distribution.base_dists[0])(
+        concentration1, concentration0, validate_args
+    )
     return reduce(
         ds.Independent(base_distribution, 1, validate_args),
         transform,
@@ -135,28 +149,35 @@ def _reduction_cat_concentration1_concentration0_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Binomial) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.Binomial) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Multinomial) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.Multinomial) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.NegativeBinomial) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, ds.NegativeBinomial) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 def _reduction_cat_total_count_logits_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    total_counts, logits = zip(*[(b.total_count, b.logits) for b in distribution.base_dists])
+    total_counts, logits = zip(
+        *[(b.total_count, b.logits) for b in distribution.base_dists]
+    )
     dim = len(distribution.batch_shape) + distribution.dim
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     total_count = torch.stack(total_counts, dim=dim)
     logits = torch.stack(logits, dim=dim)
     base_distribution = type(distribution.base_dists[0])(
-        total_count, logits=logits, validate_args=validate_args,
+        total_count,
+        logits=logits,
+        validate_args=validate_args,
     )
     return reduce(
         ds.Independent(base_distribution, 1, validate_args),
@@ -168,7 +189,7 @@ def _reduction_cat_total_count_logits_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Chi2) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Chi2) for b in d.base_dists),
 )
 def _reduction_cat_chi2_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -188,32 +209,32 @@ def _reduction_cat_chi2_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Cauchy) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Cauchy) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Gumbel) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Gumbel) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Laplace) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Laplace) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Normal) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Normal) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.LogNormal) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.LogNormal) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.LogisticNormal) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.LogisticNormal) for b in d.base_dists),
 )
 def _reduction_cat_loc_scale_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -234,7 +255,7 @@ def _reduction_cat_loc_scale_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, Deterministic) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, Deterministic) for b in d.base_dists),
 )
 def _reduction_cat_deterministic_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -254,7 +275,7 @@ def _reduction_cat_deterministic_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Dirichlet) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Dirichlet) for b in d.base_dists),
 )
 def _reduction_cat_dirichlet_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -274,12 +295,12 @@ def _reduction_cat_dirichlet_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Exponential) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Exponential) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Poisson) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Poisson) for b in d.base_dists),
 )
 def _reduction_cat_rate_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -299,7 +320,8 @@ def _reduction_cat_rate_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, Finite) for b in d.base_dists) and _has_stackable_logits(d)
+    lambda d, t: all(isinstance(b, Finite) for b in d.base_dists)
+    and _has_stackable_logits(d),
 )
 def _reduction_cat_finite_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -322,7 +344,7 @@ def _reduction_cat_finite_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.FisherSnedecor) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.FisherSnedecor) for b in d.base_dists),
 )
 def _reduction_cat_fisher_snedecor_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -343,17 +365,21 @@ def _reduction_cat_fisher_snedecor_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Gamma) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Gamma) for b in d.base_dists),
 )
 def _reduction_cat_gamma_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    concentrations, rates = zip(*[(b.concentration, b.rate) for b in distribution.base_dists])
+    concentrations, rates = zip(
+        *[(b.concentration, b.rate) for b in distribution.base_dists]
+    )
     dim = len(distribution.batch_shape) + distribution.dim
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     concentration = torch.stack(concentrations, dim=dim)
     rate = torch.stack(rates, dim=dim)
-    base_distribution = type(distribution.base_dists[0])(concentration, rate, validate_args)
+    base_distribution = type(distribution.base_dists[0])(
+        concentration, rate, validate_args
+    )
     return reduce(
         ds.Independent(base_distribution, 1, validate_args),
         transform,
@@ -364,12 +390,12 @@ def _reduction_cat_gamma_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.HalfCauchy) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.HalfCauchy) for b in d.base_dists),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.HalfNormal) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.HalfNormal) for b in d.base_dists),
 )
 def _reduction_cat_scale_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -390,7 +416,7 @@ def _reduction_cat_scale_transform(
     CatDistribution,
     ds.Transform,
     lambda d, t: all(isinstance(b, MaskedDistribution) for b in d.base_dists)
-                 and all((b.mask == d.base_dists[0].mask).all() for b in d.base_dists[1:])
+    and all((b.mask == d.base_dists[0].mask).all() for b in d.base_dists[1:]),
 )
 def _reduction_cat_mask_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -415,12 +441,17 @@ def _reduction_cat_mask_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, (ds.MultivariateNormal, ds.LowRankMultivariateNormal)) for b in d.base_dists)
+    lambda d, t: all(
+        isinstance(b, (ds.MultivariateNormal, ds.LowRankMultivariateNormal))
+        for b in d.base_dists
+    ),
 )
 def _reduction_cat_multivariate_normal_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    locs, covariance_matrices = zip(*[(b.loc, b.covariance_matrix) for b in distribution.base_dists])
+    locs, covariance_matrices = zip(
+        *[(b.loc, b.covariance_matrix) for b in distribution.base_dists]
+    )
     dim = len(distribution.batch_shape) + distribution.dim
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     loc = torch.cat(locs, dim=dim)
@@ -428,7 +459,9 @@ def _reduction_cat_multivariate_normal_transform(
     row_idx = column_idx = 0
     for k in range(len(covariance_matrices)):
         height, width = covariance_matrices[k].shape[-2:]
-        covariance_matrix[..., row_idx:row_idx + height, column_idx: column_idx + width] = covariance_matrices[k]
+        covariance_matrix[
+            ..., row_idx : row_idx + height, column_idx : column_idx + width
+        ] = covariance_matrices[k]
         row_idx += height
         column_idx += width
     return reduce(
@@ -441,7 +474,7 @@ def _reduction_cat_multivariate_normal_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Pareto) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Pareto) for b in d.base_dists),
 )
 def _reduction_cat_pareto_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -463,15 +496,15 @@ def _reduction_cat_pareto_transform(
     CatDistribution,
     ds.Transform,
     lambda d, t: all(isinstance(b, ds.RelaxedBernoulli) for b in d.base_dists)
-                 and all(b.temperature == d.base_dists[0].temperature for b in d.base_dists[1:])
-                 and _has_stackable_logits(d)
+    and all(b.temperature == d.base_dists[0].temperature for b in d.base_dists[1:])
+    and _has_stackable_logits(d),
 )
 @register_reduction(
     CatDistribution,
     ds.Transform,
     lambda d, t: all(isinstance(b, ds.RelaxedOneHotCategorical) for b in d.base_dists)
-                 and all(b.temperature == d.base_dists[0].temperature for b in d.base_dists[1:])
-                 and _has_stackable_logits(d)
+    and all(b.temperature == d.base_dists[0].temperature for b in d.base_dists[1:])
+    and _has_stackable_logits(d),
 )
 def _reduction_cat_temperature_logits_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -494,7 +527,7 @@ def _reduction_cat_temperature_logits_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.StudentT) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.StudentT) for b in d.base_dists),
 )
 def _reduction_cat_student_t_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -516,7 +549,7 @@ def _reduction_cat_student_t_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Uniform) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Uniform) for b in d.base_dists),
 )
 def _reduction_cat_uniform_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
@@ -537,17 +570,21 @@ def _reduction_cat_uniform_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.VonMises) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.VonMises) for b in d.base_dists),
 )
 def _reduction_cat_von_mises_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    locs, concentrations = zip(*[(b.loc, b.concentration) for b in distribution.base_dists])
+    locs, concentrations = zip(
+        *[(b.loc, b.concentration) for b in distribution.base_dists]
+    )
     dim = len(distribution.batch_shape) + distribution.dim
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     loc = torch.stack(locs, dim=dim)
     concentration = torch.stack(concentrations, dim=dim)
-    base_distribution = type(distribution.base_dists[0])(loc, concentration, validate_args)
+    base_distribution = type(distribution.base_dists[0])(
+        loc, concentration, validate_args
+    )
     return reduce(
         ds.Independent(base_distribution, 1, validate_args),
         transform,
@@ -558,17 +595,21 @@ def _reduction_cat_von_mises_transform(
 @register_reduction(
     CatDistribution,
     ds.Transform,
-    lambda d, t: all(isinstance(b, ds.Weibull) for b in d.base_dists)
+    lambda d, t: all(isinstance(b, ds.Weibull) for b in d.base_dists),
 )
 def _reduction_cat_weibull_transform(
     distribution: "CatDistribution", transform: "ds.Transform", **kwargs: "Any"
 ) -> "ds.Distribution":
-    scales, concentrations = zip(*[(b.scale, b.concentration) for b in distribution.base_dists])
+    scales, concentrations = zip(
+        *[(b.scale, b.concentration) for b in distribution.base_dists]
+    )
     dim = len(distribution.batch_shape) + distribution.dim
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     scale = torch.stack(scales, dim=dim)
     concentration = torch.stack(concentrations, dim=dim)
-    base_distribution = type(distribution.base_dists[0])(scale, concentration, validate_args)
+    base_distribution = type(distribution.base_dists[0])(
+        scale, concentration, validate_args
+    )
     return reduce(
         ds.Independent(base_distribution, 1, validate_args),
         transform,

@@ -25,23 +25,6 @@ __all__ = [
 class PlotlyPlotter(Plotter):
     """Plotter based on Plotly backend."""
 
-    @classmethod
-    # override
-    def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
-        parser = super().get_default_parser(**parser_kwargs)
-        parser.add_argument(
-            "--offline",
-            action="store_true",
-            help="generate self-contained plots that can be displayed offline",
-        )
-        parser.add_argument(
-            "--template",
-            default=resources.get("templates/default-template.yml"),
-            help="absolute or relative path to a Plotly template file or name of one of Plotly built-in templates",
-            dest="template_filepath_or_name",
-        )
-        return parser
-
     # override
     def _plot_traces(
         self,
@@ -133,3 +116,21 @@ class PlotlyPlotter(Plotter):
             template=template,
         )
         fig.write_html(output_filepath, include_plotlyjs=True if offline else "cdn")
+
+    # override
+    @classmethod
+    def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
+        parser_kwargs.setdefault("description", "Plot using Plotly backend")
+        parser = super().get_default_parser(**parser_kwargs)
+        parser.add_argument(
+            "--offline",
+            action="store_true",
+            help="generate self-contained plots that can be displayed offline",
+        )
+        parser.add_argument(
+            "--template",
+            default=resources.get("templates/default-template.yml"),
+            help="absolute or relative path to a Plotly template file or name of one of Plotly built-in templates",
+            dest="template_filepath_or_name",
+        )
+        return parser

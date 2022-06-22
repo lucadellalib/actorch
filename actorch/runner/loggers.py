@@ -9,11 +9,7 @@ from typing import Any, Dict
 
 import numpy as np
 from ray.tune import logger
-from ray.tune.result import (
-    TRAINING_ITERATION,
-    TIME_TOTAL_S,
-    TIMESTEPS_TOTAL,
-)
+from ray.tune.result import TIME_TOTAL_S, TIMESTEPS_TOTAL, TRAINING_ITERATION
 from ray.tune.trial import Trial
 from ray.tune.utils import flatten_dict
 from ray.util.debug import log_once
@@ -54,7 +50,9 @@ class TBXLogger(logger.TBXLogger):
 
         for attr, value in flat_result.items():
             full_attr = "/".join(path + [attr])
-            if isinstance(value, tuple(logger.VALID_SUMMARY_TYPES)) and not np.isnan(value):
+            if isinstance(value, tuple(logger.VALID_SUMMARY_TYPES)) and not np.isnan(
+                value
+            ):
                 valid_result[full_attr] = value
                 self._file_writer.add_scalar(full_attr, value, global_step=step)
             elif (isinstance(value, list) and len(value) > 0) or (
@@ -115,7 +113,9 @@ class TBXLoggerCallback(logger.TBXLoggerCallback):
 
         for attr, value in flat_result.items():
             full_attr = "/".join(path + [attr])
-            if isinstance(value, tuple(logger.VALID_SUMMARY_TYPES)) and not np.isnan(value):
+            if isinstance(value, tuple(logger.VALID_SUMMARY_TYPES)) and not np.isnan(
+                value
+            ):
                 valid_result[full_attr] = value
                 self._trial_writer[trial].add_scalar(full_attr, value, global_step=step)
             elif (isinstance(value, list) and len(value) > 0) or (

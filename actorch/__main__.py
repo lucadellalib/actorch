@@ -44,8 +44,8 @@ class ACTorch:
     """ACTorch main script."""
 
     _SCRIPT_TYPES = {
-        "run": (Run, "run experiment"),
-        "visualize": (Visualize, "visualize experiment progress"),
+        "run": Run,
+        "visualize": Visualize,
     }
 
     def main(self, args: "Namespace") -> "None":
@@ -87,11 +87,16 @@ class ACTorch:
         subparsers = parser.add_subparsers(
             title="command", dest="command", required=True
         )
-        for command, (script_cls, command_help) in cls._SCRIPT_TYPES.items():
+        for command, script_cls in cls._SCRIPT_TYPES.items():
+            command_parser = script_cls.get_default_parser()
+            help = description = command_parser.description
+            if help:
+                help = f"{help[0].lower()}{help[1:]}"
             subparsers.add_parser(
                 command,
-                help=command_help,
-                parents=[script_cls.get_default_parser()],
+                description=description,
+                help=help,
+                parents=[command_parser],
                 conflict_handler="resolve",
             )
         return parser

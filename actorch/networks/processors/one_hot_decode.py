@@ -52,7 +52,4 @@ class OneHotDecode(Processor):
         return input.argmax(dim=-1, keepdim=True)
 
     def __repr__(self) -> "str":
-        return (
-            f"{self.__class__.__name__}"
-            f"(num_classes: {self.num_classes})"
-        )
+        return f"{self.__class__.__name__}" f"(num_classes: {self.num_classes})"

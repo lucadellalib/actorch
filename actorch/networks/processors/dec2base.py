@@ -74,7 +74,4 @@ class Dec2Base(Processor):
         return digits[..., 1:].flip(dims=(-1,)).int()
 
     def __repr__(self) -> "str":
-        return (
-            f"{self.__class__.__name__}"
-            f"(base: {self.base})"
-        )
+        return f"{self.__class__.__name__}" f"(base: {self.base})"

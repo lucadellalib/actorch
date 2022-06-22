@@ -73,12 +73,16 @@ class Run:
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             with open(config_filepath, "rb") as f:
                 md5_hash = f"md5{hashlib.md5(f.read()).hexdigest()}"
-            run_name = os.path.join(experiment_name, f"{current_time}_{socket.gethostname()}_{md5_hash}")
+            run_name = os.path.join(
+                experiment_name, f"{current_time}_{socket.gethostname()}_{md5_hash}"
+            )
             experiment_params["name"] = run_name
 
         if "local_dir" not in experiment_params:
             experiment_params["local_dir"] = "experiments"
-        run_dirpath = os.path.join(experiment_params["local_dir"], experiment_params["name"])
+        run_dirpath = os.path.join(
+            experiment_params["local_dir"], experiment_params["name"]
+        )
         try:
             # Copy configuration file
             os.makedirs(run_dirpath, exist_ok=True)
@@ -98,7 +102,9 @@ class Run:
         if "progress_reporter" not in experiment_params:
             progress_reporter = detect_reporter()
             progress_reporter.add_metric_column("episodes_total", representation="eps")
-            cumreward_window_size = experiment_params.get("config", {}).get("cumreward_window_size", 100)
+            cumreward_window_size = experiment_params.get("config", {}).get(
+                "cumreward_window_size", 100
+            )
             metric_name = f"cumreward_{cumreward_window_size}"
             progress_reporter.add_metric_column(metric_name, representation=metric_name)
             experiment_params["progress_reporter"] = progress_reporter
@@ -106,7 +112,10 @@ class Run:
         # Set callbacks
         callbacks = experiment_params.get("callbacks", [])
         metric = experiment_params.get("metric")
-        if not any(isinstance(c, tune.progress_reporter.TrialProgressCallback) for c in callbacks):
+        if not any(
+            isinstance(c, tune.progress_reporter.TrialProgressCallback)
+            for c in callbacks
+        ):
             callbacks.append(TrialProgressCallback(metric=metric))
         if not any(isinstance(c, tune.logger.TrialProgressCallback) for c in callbacks):
             callbacks.append(TBXLoggerCallback())
@@ -129,8 +138,13 @@ class Run:
 
         try:
             system_infos = [
-                {v.replace("node:", "Node "): ray.get(remote_get_system_info.options(resources={v: 1}).remote())}
-                for v in ray.cluster_resources() if v.startswith("node:")
+                {
+                    v.replace("node:", "Node "): ray.get(
+                        remote_get_system_info.options(resources={v: 1}).remote()
+                    )
+                }
+                for v in ray.cluster_resources()
+                if v.startswith("node:")
             ]
             with open(os.path.join(run_dirpath, "system-info.txt"), "w") as f:
                 f.write("\n".join([pretty_print(v) for v in system_infos]))
@@ -162,7 +176,7 @@ class Run:
             help=(
                 "absolute or relative path to the configuration file, i.e. "
                 "a Python script that defines an `experiment_params` dict "
-                "with the keyword arguments to pass to `ray.tune.run` "
+                "with keyword arguments to pass to `ray.tune.run` "
                 "(see https://docs.ray.io/en/latest/tune/api_docs/execution.html#tune-run)"
             ),
             metavar="config-file",
