@@ -9,6 +9,12 @@
 #include <numpy/arrayobject.h>
 
 
+// NumPy arrays are in general non-contiguous
+#define IDX(i) *(long *)(idx_obj->data + i * idx_obj->strides[0])
+#define TERMINALS(i) *(bool *)(terminals_obj->data + i * terminals_obj->strides[0])
+#define PRIORITIES(i) *(float *)(priorities_obj->data + i * priorities_obj->strides[0])
+
+
 PyDoc_STRVAR(
 utils__doc__,
 "Buffer utilities."
@@ -48,7 +54,7 @@ compute_trajectory_priorities__doc__,
 static PyArrayObject *
 compute_trajectory_priorities(PyObject *self, PyObject *args)
 {
-    int64_t batch_size, num_experiences;
+    long batch_size, num_experiences;
     PyArrayObject *idx_obj, *terminals_obj, *priorities_obj;
 
     if (!PyArg_ParseTuple(
@@ -64,30 +70,27 @@ compute_trajectory_priorities(PyObject *self, PyObject *args)
         &priorities_obj
     )) return NULL;
 
-    const int64_t *idx = (int64_t *)idx_obj->data;
-    const bool *terminals = (bool *)terminals_obj->data;
-    const float *priorities = (float *)priorities_obj->data;
+    float *trajectory_priorities = (float *)malloc((long)(num_experiences * sizeof(float)));
+    long *curr_idx = (long *)malloc((long)(batch_size * sizeof(long)));
+    float *prev = (float *)malloc((long)(batch_size * sizeof(float)));
 
-    float *trajectory_priorities = (float *)malloc(num_experiences * sizeof(float));
-    int64_t *curr_idx = (int64_t *)malloc(batch_size * sizeof(int64_t));
-    int64_t *prev = (int64_t *)malloc(batch_size * sizeof(int64_t));
-    for (int64_t i = 0; i < batch_size; i++)
+    for (long i = 0; i < batch_size; i++)
     {
-        prev[i] = trajectory_priorities[idx[i]] = priorities[idx[i]];
-        curr_idx[i] = idx[i] - batch_size;
+        prev[i] = trajectory_priorities[IDX(i)] = PRIORITIES(IDX(i));
+        curr_idx[i] = IDX(i) - batch_size;
         if (curr_idx[i] < 0) curr_idx[i] += num_experiences;
     }
 
-    const bool is_wrapped_idx = idx[0] > idx[batch_size - 1];
-    for (int64_t i = 0; i < batch_size; i++)
+    const bool is_wrapped_idx = IDX(0) > IDX(batch_size - 1);
+    for (long i = 0; i < batch_size; i++)
     {
         while (is_wrapped_idx ?
-               (curr_idx[i] < idx[0] && curr_idx[i] > idx[batch_size - 1]) :
-               (curr_idx[i] < idx[0] || curr_idx[i] > idx[batch_size - 1])
+               (curr_idx[i] < IDX(0) && curr_idx[i] > IDX(batch_size - 1)) :
+               (curr_idx[i] < IDX(0) || curr_idx[i] > IDX(batch_size - 1))
               )
         {
-            if (terminals[curr_idx[i]]) prev[i] = 0;
-            prev[i] += priorities[idx[i]];
+            if (TERMINALS(curr_idx[i])) prev[i] = 0;
+            prev[i] += PRIORITIES(IDX(i));
             trajectory_priorities[curr_idx[i]] = prev[i];
             curr_idx[i] -= batch_size;
             if (curr_idx[i] < 0) curr_idx[i] += num_experiences;

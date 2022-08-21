@@ -24,8 +24,9 @@ __all__ = [
 class Loader(ABC):
     """Load progress data from progress files stored in a directory."""
 
+    @classmethod
     def load(
-        self,
+        cls,
         input_dirpath: "str",
         search_pattern: "str" = ".*",
         exclude_names: "Optional[Sequence[str]]" = None,
@@ -64,7 +65,7 @@ class Loader(ABC):
                 ],
             )
         )
-        all_data = defaultdict(dict)
+        all_data: "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]" = defaultdict(dict)
         with tqdm(total=len(filepaths)) as progress_bar:
             for filepath in filepaths:
                 head, tail = os.path.split(filepath)
@@ -73,7 +74,7 @@ class Loader(ABC):
                 progress_bar.set_description(
                     f"Loading {os.path.join(trial_name, tail)}"
                 )
-                data = self._load_data(filepath, **kwargs)
+                data = cls._load_data(filepath, **kwargs)
                 for series_name in data:
                     if series_name in exclude_names:
                         continue
@@ -81,10 +82,11 @@ class Loader(ABC):
                         continue
                     mean = data[series_name]
                     stddev = np.zeros_like(mean)
-                    if series_name.find("/mean") != -1:
-                        stddev = data.get(
-                            series_name.replace("/mean", "/stddev"), stddev
-                        )
+                    if series_name.endswith("/mean"):
+                        stddev_key = series_name.replace("/mean", "/stddev")
+                        if stddev_key in data:
+                            series_name = series_name.replace("/mean", "")
+                            stddev = data[stddev_key]
                     all_data[series_name][trial_name] = (mean, stddev)
                 progress_bar.update()
         return all_data
@@ -106,14 +108,15 @@ class Loader(ABC):
         parser_kwargs.setdefault("description", "Load progress data")
         parser = ArgumentParser(**parser_kwargs)
         parser.add_argument(
-            "input_dirpath",
+            "--input-dirpath",
+            default=".",
             help="absolute or relative path to the input directory",
             metavar="input-dir",
         )
         parser.add_argument(
             "-p",
             "--search-pattern",
-            default=".*progress.*",
+            default=".*",
             help="regex pattern to search for in the paths to the progress files",
         )
         parser.add_argument(
@@ -125,11 +128,9 @@ class Loader(ABC):
         )
         return parser
 
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}()"
-
+    @classmethod
     @abstractmethod
-    def _load_data(self, filepath: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
+    def _load_data(cls, filepath: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
         """Load progress data from a progress file.
 
         Parameters

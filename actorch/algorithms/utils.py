@@ -36,17 +36,19 @@ def count_params(module: "Module") -> "Tuple[int, int]":
 
     Returns
     -------
-        The number of trainable parameters;
-        the number of non-trainable parameters.
+        - The number of trainable parameters;
+        - the number of non-trainable parameters.
 
     """
-    num_trainable, num_non_trainable = 0, 0
+    num_trainable_params, num_non_trainable_params = 0, 0
     for param in module.parameters():
         if param.requires_grad:
-            num_trainable += param.numel()
+            num_trainable_params += param.numel()
         else:
-            num_non_trainable += param.numel()
-    return num_trainable, num_non_trainable
+            num_non_trainable_params += param.numel()
+    for buffer in module.buffers():
+        num_non_trainable_params += buffer.numel()
+    return num_trainable_params, num_non_trainable_params
 
 
 @contextmanager
@@ -85,10 +87,9 @@ def sync_polyak(
 
     For each `target_param` in `target_module`,
     for each `source_param` in `source_module`:
-    ``target_param = (
-        (1 - polyak_weight) * target_param +
-        polyak_weight * source_param
-    )``.
+    `target_param` =
+        (1 - `polyak_weight`) * `target_param` +
+        `polyak_weight` * `source_param`.
 
     Parameters
     ----------
@@ -193,6 +194,16 @@ def prepare_model(
     prepared_model = train.torch.prepare_model(
         model, move_to_device, ddp_cls is not None, ddp_kwargs
     )
+    if train.session.get_accelerator(train.torch.TorchAccelerator).amp_is_enabled:
+        # Patch forward
+        if isinstance(prepared_model, DistributedDataParallel):
+            prepared_model.module.forward = torch.cuda.amp.autocast()(
+                prepared_model.module._unwrapped_forward
+            )
+        else:
+            prepared_model.forward = torch.cuda.amp.autocast()(
+                prepared_model._unwrapped_forward
+            )
     if isinstance(prepared_model, DistributedDataParallel):
         prepared_model.__class__ = ddp_cls
     available_gpu_ids = ray.get_gpu_ids()

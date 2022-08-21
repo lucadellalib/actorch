@@ -20,15 +20,16 @@ __all__ = [
 class ConvNet(FCNet):
     """Convolutional neural network model."""
 
+    # override
     def __init__(
         self,
         in_shapes: "Dict[str, Tuple[int, ...]]",
         out_shapes: "Dict[str, Tuple[int, ...]]",
         torso_conv_configs: "Optional[Sequence[Dict[str, Any]]]" = None,
-        torso_activation_builder: "Callable[..., nn.Module]" = nn.ReLU,
+        torso_activation_builder: "Optional[Callable[..., nn.Module]]" = None,
         torso_activation_config: "Optional[Dict[str, Any]]" = None,
         head_fc_bias: "bool" = True,
-        head_activation_builder: "Callable[..., nn.Module]" = nn.Identity,
+        head_activation_builder: "Optional[Callable[..., nn.Module]]" = None,
         head_activation_config: "Optional[Dict[str, Any]]" = None,
         independent_heads: "Optional[Sequence[str]]" = None,
     ) -> "None":
@@ -46,18 +47,20 @@ class ConvNet(FCNet):
             The configurations of the torso convolutional layers.
             Argument `in_channels` is set internally.
             Default to ``[
-                {"out_channels": 8, "kernel_size": 4, "bias": True},
-                {"out_channels": 4, "kernel_size": 2, "bias": True},
+                {"out_channels": 8, "kernel_size": 1, "bias": True},
+                {"out_channels": 4, "kernel_size": 1, "bias": True},
             ]``.
         torso_activation_builder:
             The torso activation builder (the same for all
             torso convolutional layers), i.e. a callable that
             receives keyword arguments from a configuration
             and returns an activation.
+            Default to ``nn.ReLU``.
         torso_activation_config:
             The torso activation configuration
             (the same for all torso fully connected layers).
-            Default to ``{}``.
+            Default to ``{"inplace": False}`` if
+            `torso_activation_builder` is None, ``{}`` otherwise.
         head_fc_bias:
             True to learn an additive bias in the head
             fully connected layer, False otherwise
@@ -67,6 +70,7 @@ class ConvNet(FCNet):
             input-dependent heads), i.e. a callable that
             receives keyword arguments from a configuration
             and returns an activation.
+            Default to ``nn.Identity``.
         head_activation_config:
             The head activation configuration
             (the same for all input-dependent heads).
@@ -79,16 +83,26 @@ class ConvNet(FCNet):
 
         """
         self.torso_conv_configs = torso_conv_configs or [
-            {"out_channels": 8, "kernel_size": 4, "bias": True},
-            {"out_channels": 4, "kernel_size": 2, "bias": True},
+            {"out_channels": 8, "kernel_size": 1, "bias": True},
+            {"out_channels": 4, "kernel_size": 1, "bias": True},
         ]
-        self.torso_activation_builder = torso_activation_builder
-        self.torso_activation_config = torso_activation_config or {}
-        self.head_fc_bias = head_fc_bias
-        self.head_activation_builder = head_activation_builder
-        self.head_activation_config = head_activation_config or {}
-        self.independent_heads = independent_heads or []
-        super(FCNet, self).__init__(in_shapes, out_shapes)
+        self.torso_activation_builder = torso_activation_builder or nn.ReLU
+        self.torso_activation_config = (
+            torso_activation_config
+            if torso_activation_config is not None
+            else ({"inplace": False} if torso_activation_builder is None else {})
+        )
+        super().__init__(
+            in_shapes,
+            out_shapes,
+            head_fc_bias=head_fc_bias,
+            head_activation_builder=head_activation_builder,
+            head_activation_config=head_activation_config,
+            independent_heads=independent_heads,
+        )
+        del self.torso_fc_configs
+        del self.torso_activation_builder
+        del self.torso_activation_config
 
     # override
     def _setup_torso(self, in_shape: "Size") -> "None":
@@ -124,6 +138,10 @@ class ConvNet(FCNet):
         input = input[mask]
         masked_output = self.torso(input)
         out_shape = masked_output.shape[1:]
-        output = torch.zeros(mask.shape + out_shape, device=masked_output.device)
+        output = torch.zeros(
+            mask.shape + out_shape,
+            dtype=masked_output.dtype,
+            device=masked_output.device,
+        )
         output[mask] = masked_output
         return output, states

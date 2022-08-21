@@ -26,6 +26,7 @@ class Deterministic(Finite):
         "value": constraints.real,
     }
 
+    # override
     def __init__(
         self,
         value: "Union[int, float, Tensor]",
@@ -50,7 +51,7 @@ class Deterministic(Finite):
     # override
     def expand(
         self,
-        batch_shape: "Size" = torch.Size(),
+        batch_shape: "Size" = torch.Size(),  # noqa: B008
         _instance: "Optional[Deterministic]" = None,
     ) -> "Deterministic":
         new = self._get_checked_instance(Deterministic, _instance)
@@ -64,6 +65,11 @@ class Deterministic(Finite):
     # override
     @property
     def mean(self) -> "Tensor":
+        return self.value
+
+    # override
+    @property
+    def mode(self) -> "Tensor":
         return self.value
 
     # override
@@ -108,8 +114,9 @@ class Deterministic(Finite):
     def entropy(self) -> "Tensor":
         return torch.zeros_like(self.value)
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(value: {self.value if self.value.numel() == 1 else self.value.shape})"
         )

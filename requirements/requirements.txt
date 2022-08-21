@@ -1,16 +1,12 @@
 cloudpickle>=1.3.0
 colorama>=0.4.3
 GPUtil>=1.4.0
-gym>=0.21.0
-matplotlib>=3.2.1
+gym>=0.25.0
 numpy>=1.19.5
-plotly>=4.9.0
 psutil>=5.7.0
 PyYAML>=5.3.1
 ray[tune]>=1.13.0
 scipy>=1.4.1
-tensorboard>=2.2.2
-tensorboardX>=2.0
--f https://download.pytorch.org/whl/torch_stable.html # PyTorch installation on Windows
-torch>=1.10.0
-tqdm>=4.48.2
+tensorboard>=2.6.0
+-f https://download.pytorch.org/whl/torch_stable.html  # PyTorch installation on Windows
+torch>=1.12.0

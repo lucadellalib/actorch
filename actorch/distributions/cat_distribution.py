@@ -8,7 +8,7 @@ from typing import List, Optional, Sequence
 
 import torch
 from torch import Size, Tensor
-from torch.distributions import Distribution, constraints, utils
+from torch.distributions import Distribution, constraints
 from torch.distributions.constraints import Constraint
 
 from actorch.distributions.constraints import cat
@@ -29,6 +29,7 @@ class CatDistribution(Distribution):
     has_enumerate_support = False
     arg_constraints = {}
 
+    # override
     def __init__(
         self,
         base_distributions: "Sequence[Distribution]",
@@ -40,7 +41,7 @@ class CatDistribution(Distribution):
         Parameters
         ----------
         base_distributions:
-            The base distributions.
+            The base distributions to concatenate.
         dim:
             The event dimension along which to concatenate.
         validate_args:
@@ -89,7 +90,7 @@ class CatDistribution(Distribution):
             event_shape[dim] += expanded_event_shape[dim]
         super().__init__(batch_shape, torch.Size(event_shape), validate_args)
 
-    @utils.lazy_property
+    @property
     def is_discrete(self) -> "bool":
         """Whether the distribution is discrete.
 
@@ -118,6 +119,11 @@ class CatDistribution(Distribution):
     @property
     def mean(self) -> "Tensor":
         return self._cat([d.mean for d in self.base_dists])
+
+    # override
+    @property
+    def mode(self) -> "Tensor":
+        return self._cat([d.mode for d in self.base_dists])
 
     # override
     @property
@@ -172,5 +178,6 @@ class CatDistribution(Distribution):
             for chunk, d in zip(chunks, self.base_dists)
         ]
 
+    # override
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}({self.base_dists}, dim: {self.dim})"
+        return f"{type(self).__name__}({self.base_dists}, dim: {self.dim})"

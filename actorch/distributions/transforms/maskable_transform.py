@@ -28,13 +28,15 @@ class MaskableTransform(ABC, Transform):
 
     """
 
+    # override
     def __init__(self, cache_size: "int" = 0) -> "None":
         super().__init__(cache_size)
         self.mask = torch.as_tensor(True)[(None,) * self.domain.event_dim]
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(mask: {self.mask if self.mask.numel() == 1 else self.mask.shape})"
         )
 

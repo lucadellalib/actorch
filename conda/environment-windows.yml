@@ -19,7 +19,7 @@ dependencies:
   - openssl=1.1.1g
   - pip=20.2.2
   - python=3.8.5
-  - pytorch=1.10.0
+  - pytorch=1.12.0
   - pytorch-mutex=1.0
   - setuptools=49.6.0
   - sqlite=3.32.3
@@ -72,11 +72,13 @@ dependencies:
     - gpustat==0.6.0
     - GPUtil==1.4.0
     - grpcio==1.32.0
-    - gym==0.21.0
+    - gym==0.25.0
+    - gym-notices==0.0.7
     - hiredis==1.1.0
     - identify==1.4.28
     - idna==2.10
     - imagesize==1.2.0
+    - importlib-metadata==4.12.0
     - iniconfig==1.0.1
     - isort==5.4.2
     - jeepney==0.6.0
@@ -157,7 +159,8 @@ dependencies:
     - sphinxcontrib-qthelp==1.0.3
     - sphinxcontrib-serializinghtml==1.1.4
     - tabulate==0.8.7
-    - tensorboard==2.3.0
+    - tensorboard==2.6.0
+    - tensorboard-data-server==0.6.1
     - tensorboard-plugin-wit==1.7.0
     - tensorboardX==2.1
     - toml==0.10.1

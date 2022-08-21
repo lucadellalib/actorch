@@ -42,6 +42,7 @@ class PolicyNetwork(Network):
 
     """
 
+    # override
     def __init__(
         self,
         preprocessors: "Dict[str, Processor]",
@@ -64,12 +65,13 @@ class PolicyNetwork(Network):
             input modalities to their corresponding preprocessors.
         model_builder:
             The model builder, i.e. a callable that receives keyword
-            arguments from a configuration and returns a model.
+            arguments from a model configuration and returns a model.
         distribution_builders:
             The distribution builders, i.e. a dict that maps names of
             the output modalities to their corresponding distribution
             builders. A distribution builder is a callable that receives
-            keyword arguments from a configuration and returns a distribution.
+            keyword arguments from a distribution parametrization and a
+            distribution configuration and returns a distribution.
         distribution_parametrizations:
             The distribution parametrizations, i.e. a dict that maps names
             of the output modalities to their corresponding distribution
@@ -82,7 +84,7 @@ class PolicyNetwork(Network):
             The distribution configurations, i.e. a dict that maps names
             of the output modalities to their corresponding distribution
             configurations.
-            Arguments in `distribution_parametrizations` are set internally.
+            Arguments defined in `distribution_parametrizations` are set internally.
             Default to ``{}``.
         normalizing_flows:
             The normalizing flows, i.e. a dict that maps names of the
@@ -90,13 +92,14 @@ class PolicyNetwork(Network):
             Default to ``{}``.
         sample_fn:
             The function that draws samples from the predictive distribution.
-            It receives as an argument the distribution and returns the
-            corresponding sample.
+            It receives as an argument the predictive distribution and returns
+            the corresponding sample.
             Default to ``lambda distribution: distribution.mean``.
         prediction_fn:
             The function that returns predictions from samples drawn from
             the predictive distribution. It receives as an argument a
-            sample and returns the corresponding prediction.
+            sample drawn from the predictive distribution and returns
+            the corresponding prediction.
             Default to ``lambda sample: sample``.
         postprocessors:
             The postprocessors, i.e. a dict that maps names of the
@@ -126,17 +129,20 @@ class PolicyNetwork(Network):
                 f"subset of `distribution_builders.keys()` ({list(out_modality_names)})"
             )
         if postprocessors:
-            for modality_name in out_modality_names:
-                if modality_name not in postprocessors:
-                    postprocessors[modality_name] = Identity(
-                        self._event_shapes[modality_name]
-                    )
+            # Order matters
+            postprocessors = {
+                out_modality_name: postprocessors.get(
+                    out_modality_name,
+                    Identity(self._event_shapes[out_modality_name]),
+                )
+                for out_modality_name in out_modality_names
+            }
         self.sample_fn = sample_fn or (lambda distribution: distribution.mean)
         self.prediction_fn = prediction_fn or (lambda sample: sample)
         self.postprocessors = postprocessors
         self._prediction_preprocessors = {}
-        for modality_name, shape in self._event_shapes.items():
-            self._prediction_preprocessors[modality_name] = Identity(shape)
+        for out_modality_name, event_shape in self._event_shapes.items():
+            self._prediction_preprocessors[out_modality_name] = Identity(event_shape)
 
     def predict(self, sample: "Optional[Tensor]" = None) -> "Tensor":
         """Return a prediction from a sample drawn from

@@ -20,6 +20,12 @@ __all__ = [
 class LambdaSchedule(Schedule):
     """Schedule defined by a given function."""
 
+    _STATE_VARS = Schedule._STATE_VARS + [
+        "_num_elapsed_timesteps",
+        "_value",
+    ]  # override
+
+    # override
     def __init__(
         self,
         step_fn: "Callable[[Union[int, ndarray]], Union[int, float, ndarray]]",
@@ -51,13 +57,15 @@ class LambdaSchedule(Schedule):
         self._num_elapsed_timesteps[mask] += 1
         self._value = self.step_fn(self._num_elapsed_timesteps)
 
+    # override
     def __call__(self) -> "Union[int, float, ndarray]":
         value = np.array(self._value)  # Copy
         return value if self.batch_size else value.item()
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(step_fn: {self.step_fn}, "
             f"batch_size: {self.batch_size})"
         )

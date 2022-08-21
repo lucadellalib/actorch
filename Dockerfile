@@ -31,6 +31,7 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh &
 # Copy and install project
 COPY . $HOME/actorch
 RUN conda env update -n base -f $HOME/actorch/conda/environment-linux.yml
+RUN pip install -e $HOME/actorch[all]
 
 # If a git repository, install git commit hook
 RUN cd $HOME/actorch && bash -c "if [ -d '.git' ]; then pre-commit install -f; fi"

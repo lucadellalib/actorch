@@ -25,6 +25,7 @@ class SumTransform(MaskableTransform):
     is_constant_jacobian = False
     """Whether the Jacobian matrix is constant (i.e. the transform is affine)."""
 
+    # override
     def __init__(
         self, in_shape: "Tuple[int, ...]", dim: "int" = 0, cache_size: "int" = 0
     ) -> "None":
@@ -112,6 +113,7 @@ class SumTransform(MaskableTransform):
             )
         return shape[: len(shape) - len(self._out_shape)] + self.in_shape
 
+    # override
     def __eq__(self, other: "Any") -> "bool":
         return (
             isinstance(other, SumTransform)
@@ -120,9 +122,10 @@ class SumTransform(MaskableTransform):
             and (self.mask == other.mask).all()
         )
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(in_shape: {self.in_shape}, "
             f"dim: {self.dim}, "
             f"mask: {self.mask if self.mask.numel() == 1 else self.mask.shape})"

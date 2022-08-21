@@ -15,7 +15,7 @@ from actorch.models import ConvNet, FCNet, LSTMNet
 
 _TEST_CASES = {}
 
-_TEST_CASES["FC"] = [
+_TEST_CASES["FCNet"] = [
     {
         "in_shapes": {
             "obs": (2,),
@@ -45,7 +45,7 @@ _TEST_CASES["FC"] = [
     },
 ]
 
-_TEST_CASES["Conv"] = [
+_TEST_CASES["ConvNet"] = [
     {
         "in_shapes": {
             "obs": (2, 10),
@@ -94,7 +94,7 @@ _TEST_CASES["Conv"] = [
     },
 ]
 
-_TEST_CASES["Recurrent"] = [
+_TEST_CASES["LSTMNet"] = [
     {
         "in_shapes": {
             "obs": (2,),
@@ -146,23 +146,23 @@ _TEST_CASES["Recurrent"] = [
 ]
 
 
-@pytest.mark.parametrize("model_config", _TEST_CASES["FC"])
+@pytest.mark.parametrize("model_config", _TEST_CASES["FCNet"])
 @pytest.mark.parametrize("batch_shape", [(1,), (4,), (3, 4), (2, 3, 4), (2, 3, 4, 5)])
-def test_fc(model_config, batch_shape):
+def test_fc_net(model_config, batch_shape):
     torch.manual_seed(0)
     return _test_model(FCNet, model_config, batch_shape)
 
 
-@pytest.mark.parametrize("model_config", _TEST_CASES["Conv"])
+@pytest.mark.parametrize("model_config", _TEST_CASES["ConvNet"])
 @pytest.mark.parametrize("batch_shape", [(1,), (4,), (3, 4), (2, 3, 4), (2, 3, 4, 5)])
-def test_conv(model_config, batch_shape):
+def test_conv_net(model_config, batch_shape):
     torch.manual_seed(0)
     return _test_model(ConvNet, model_config, batch_shape)
 
 
-@pytest.mark.parametrize("model_config", _TEST_CASES["Recurrent"])
+@pytest.mark.parametrize("model_config", _TEST_CASES["LSTMNet"])
 @pytest.mark.parametrize("batch_shape", [(1,), (4,), (3, 4), (2, 3, 4), (2, 3, 4, 5)])
-def test_recurrent(model_config, batch_shape):
+def test_lstm_net(model_config, batch_shape):
     torch.manual_seed(0)
     batch_first = (
         model_config["torso_lstm_config"].get("batch_first", False)
@@ -218,7 +218,10 @@ def _test_backward(outputs):
 
 def _test_tracing(model):
     example_inputs = model.get_example_inputs()
-    example_inputs[1]["_"] = torch.ones(1)
+    if not example_inputs[1]:
+        # If states is empty, add a dummy value to avoid
+        # RuntimeError: Dictionary inputs must have entries
+        example_inputs[1]["_"] = torch.empty(1)
     traced_model = torch.jit.trace(model, example_inputs, strict=False)
     outputs = model(*example_inputs)
     traced_model_outputs = traced_model(*example_inputs)

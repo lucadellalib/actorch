@@ -18,6 +18,7 @@ class Callback:
     def on_episode_start(
         self,
         stats: "Dict[str, Any]",
+        info: "Dict[str, Any]",
     ) -> "None":
         """The function called directly after an episode has started.
 
@@ -25,6 +26,9 @@ class Callback:
         ----------
         stats:
             The current sampling statistics.
+        info:
+            The auxiliary diagnostic information
+            returned by the environment.
 
         See Also
         --------
@@ -74,4 +78,4 @@ class Callback:
         pass
 
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}()"
+        return f"{type(self).__name__}()"

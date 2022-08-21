@@ -24,7 +24,7 @@ __all__ = [
 # https://github.com/ray-project/ray/blob/7f1bacc7dc9caf6d0ec042e39499bbf1d9a7d065/python/ray/tune/progress_reporter.py#L945
 class TrialProgressCallback(progress_reporter.TrialProgressCallback):
     """Modified version of `ray.tune.progress_reporter.TrialProgressCallback`
-    that prints values through `actorch.runner.utils.pretty_print`.
+    that prints values through `actorch.utils.pretty_print`.
 
     """
 

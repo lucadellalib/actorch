@@ -42,7 +42,7 @@ legend.numpoints: 1
 legend.scatterpoints: 1
 
 lines.linewidth: 1.2
-lines.markersize: 5.0
+lines.markersize: 4.0
 lines.solid_capstyle: round
 
 text.color: 0.15

@@ -37,7 +37,7 @@ def l2_project(z_p: "Tensor", p: "Tensor", z_q: "Tensor") -> "Tensor":
     """Project distribution `(z_p, p)` onto support `z_q` under L2-metric over CDFs.
 
     Supports `z_p` and `z_q` are specified as tensors of distinct atoms given in ascending order.
-    Let `B = [B_1, ..., B_k]` denote the batch shape, `N_p` the number of atoms in `z_p` and `N_q`
+    Let `B = {B_1, ..., B_k}` denote the batch shape, `N_p` the number of atoms in `z_p` and `N_q`
     the number of atoms in `z_q`. This projection works for any support `z_q`. In particular, `N_p`
     does not need to be equal to `N_q`.
 
@@ -121,11 +121,13 @@ def is_discrete(distribution: "Distribution") -> "bool":
     >>>
     >>> class Custom(Distribution):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @is_discrete.register(Custom)
     >>> def _is_discrete_custom(distribution):
     >>>     # Implementation
+    >>>     ...
 
     """
     if hasattr(distribution, "is_discrete"):
@@ -158,11 +160,13 @@ def is_affine(transform: "Transform") -> "bool":
     >>>
     >>> class Custom(Transform):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @is_affine.register(Custom)
     >>> def _is_affine_custom(transform):
     >>>     # Implementation
+    >>>     ...
 
     """
     if hasattr(transform, "is_constant_jacobian"):
@@ -204,11 +208,13 @@ def is_scaling(transform: "Transform") -> "bool":
     >>>
     >>> class Custom(Transform):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @is_scaling.register(Custom)
     >>> def _is_scaling_custom(transform):
     >>>     # Implementation
+    >>>     ...
 
     """
     if isinstance(

@@ -38,11 +38,12 @@ class CGBLS(optim.Optimizer):
 
     """
 
+    # override
     def __init__(
         self,
         params: "Union[Iterable[Tensor], Iterable[Dict[str, Any]]]",
         max_constraint: "float",
-        num_cg_iters: "int" = 10,
+        num_cg_iterations: "int" = 10,
         max_backtracks: "int" = 15,
         backtrack_ratio: "float" = 0.8,
         hvp_reg_coeff: "float" = 1e-5,
@@ -57,7 +58,7 @@ class CGBLS(optim.Optimizer):
             The parameters to optimize.
         max_constraint:
             The maximum constraint value.
-        num_cg_iters:
+        num_cg_iterations:
             The number of conjugate gradient iterations for `A^(-1) g` computation.
         max_backtracks:
             The maximum number of backtracking line search iterations.
@@ -77,15 +78,15 @@ class CGBLS(optim.Optimizer):
             If an invalid argument value is given.
 
         """
-        if num_cg_iters < 1 or not float(num_cg_iters).is_integer():
+        if num_cg_iterations < 1 or not float(num_cg_iterations).is_integer():
             raise ValueError(
-                f"`num_cg_iters` ({num_cg_iters}) must be in the integer interval [1, inf)"
+                f"`num_cg_iterations` ({num_cg_iterations}) must be in the integer interval [1, inf)"
             )
         if max_backtracks < 1 or not float(max_backtracks).is_integer():
             raise ValueError(
                 f"`max_backtracks` ({max_backtracks}) must be in the integer interval [1, inf)"
             )
-        if backtrack_ratio >= 1.0 or backtrack_ratio <= 0.0:
+        if backtrack_ratio <= 0.0 or backtrack_ratio >= 1.0:
             raise ValueError(
                 f"`backtrack_ratio` ({backtrack_ratio}) must be in the interval (0, 1)"
             )
@@ -95,12 +96,12 @@ class CGBLS(optim.Optimizer):
             )
         if epsilon <= 0.0:
             raise ValueError(f"`epsilon` ({epsilon}) must be in the interval (0, inf)")
-        num_cg_iters = int(num_cg_iters)
+        num_cg_iterations = int(num_cg_iterations)
         max_backtracks = int(max_backtracks)
 
         defaults = {
             "max_constraint": max_constraint,
-            "num_cg_iters": num_cg_iters,
+            "num_cg_iterations": num_cg_iterations,
             "max_backtracks": max_backtracks,
             "backtrack_ratio": backtrack_ratio,
             "hvp_reg_coeff": hvp_reg_coeff,
@@ -150,7 +151,7 @@ class CGBLS(optim.Optimizer):
 
             # Compute step direction
             step_dir = self._conjugate_gradient(
-                Ax_fn, flat_loss_grads, group["num_cg_iters"]
+                Ax_fn, flat_loss_grads, group["num_cg_iterations"]
             )
 
             # Replace NaN with 0
@@ -217,8 +218,8 @@ class CGBLS(optim.Optimizer):
             f = fn()
         f_grads = torch.autograd.grad(f, params, create_graph=True)
 
-        def evaluation_fn(vector: "Tensor") -> "Tensor":
-            """The evaluation function.
+        def compute_hessian_vector_product(vector: "Tensor") -> "Tensor":
+            """Compute the product of the Hessian of `fn` and `vector`.
 
             Parameters
             ----------
@@ -255,13 +256,13 @@ class CGBLS(optim.Optimizer):
             flat_output = torch.cat([h.flatten() for h in hvp])
             return flat_output + hvp_reg_coeff * vector
 
-        return evaluation_fn
+        return compute_hessian_vector_product
 
     def _conjugate_gradient(
         self,
         Ax_fn: "Callable[[Tensor], Tensor]",
         b: "Tensor",
-        num_cg_iters: "int" = 10,
+        num_cg_iterations: "int" = 10,
         residual_tol: "float" = 1e-10,
     ) -> "Tensor":
         """Use conjugate gradient method to solve `Ax = b`.
@@ -274,7 +275,7 @@ class CGBLS(optim.Optimizer):
             Hessian and returns the corresponding Hessian-vector product.
         b:
             Right-hand side of the equation to solve.
-        num_cg_iters:
+        num_cg_iterations:
             The number of conjugate gradient iterations for `A^(-1) b` computation.
         residual_tol:
             The tolerance for convergence.
@@ -295,7 +296,7 @@ class CGBLS(optim.Optimizer):
         x = torch.zeros_like(b)
         r_dot_r = r.dot(r)
 
-        for _ in range(num_cg_iters):
+        for _ in range(num_cg_iterations):
             z = Ax_fn(p)
             v = r_dot_r / p.dot(z)
             x += v * p

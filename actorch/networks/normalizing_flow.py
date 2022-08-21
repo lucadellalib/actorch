@@ -5,6 +5,7 @@
 """Normalizing flow."""
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from torch import Size, Tensor
 from torch.distributions import Transform, constraints
@@ -20,10 +21,10 @@ class NormalizingFlow(ABC, Transform, Module):
     """Transform with learnable parameters.
 
     Useful to learn arbitrarily complex distributions while retaining the ease of reparametrization of simple ones.
-    Derived classes must implement `domain`, `codomain`, `forward_shape`, `inverse_shape` and `_call` to allow for
-    sampling from the corresponding transformed distribution. If the transform is invertible, `_inverse`, and
-    `log_abs_det_jacobian` should be implemented to allow for computing the log probability of samples drawn from
-    the corresponding transformed distribution. Note that, even when `_inverse` cannot be implemented (e.g. no
+    Derived classes must implement `domain`, `codomain`, `forward_shape`, `inverse_shape` and `_Model._call` to allow
+    for sampling from the corresponding transformed distribution. If the transform is invertible, `_Model._inverse` and
+    `_Model.log_abs_det_jacobian` should be implemented to allow for computing the log probability of samples drawn from
+    the corresponding transformed distribution. Note that, even when `_Model._inverse` cannot be implemented (e.g. no
     closed-form solution exists), the log probability of samples drawn from the corresponding transformed
     distribution can still be computed by enabling caching.
 
@@ -53,11 +54,56 @@ class NormalizingFlow(ABC, Transform, Module):
     is_constant_jacobian = False
     """Whether the Jacobian matrix is constant (i.e. the transform is affine)."""
 
+    model: "_Model"
+    """The underlying model."""
+
+    class _Model(ABC, Module):
+        # override
+        def forward(self, name: "str", *args: "Any", **kwargs: "Any") -> "Tensor":
+            if name == "_call":
+                return self._call(*args, **kwargs)
+            if name == "_inverse":
+                return self._inverse(*args, **kwargs)
+            if name == "log_abs_det_jacobian":
+                return self.log_abs_det_jacobian(*args, **kwargs)
+            raise NotImplementedError
+
+        @abstractmethod
+        def _call(self, x: "Tensor") -> "Tensor":
+            """See documentation of `torch.distributions.transforms.Transform._call`."""
+            raise NotImplementedError
+
+        def _inverse(self, y: "Tensor") -> "Tensor":
+            """See documentation of `torch.distributions.transforms.Transform._inverse`."""
+            raise NotImplementedError
+
+        def log_abs_det_jacobian(self, x: "Tensor", y: "Tensor") -> "Tensor":
+            """See documentation of `torch.distributions.transforms.Transform.log_abs_det_jacobian`."""
+            raise NotImplementedError
+
+    # override
+    def __init__(self, cache_size: "int" = 0) -> "None":
+        super().__init__(cache_size)
+        self.model = self._Model()
+
+    # override
+    def _call(self, x: "Tensor") -> "Tensor":
+        return self.model("_call", x)
+
+    # override
+    def _inverse(self, y: "Tensor") -> "Tensor":
+        return self.model("_inverse", y)
+
+    # override
+    def log_abs_det_jacobian(self, x: "Tensor", y: "Tensor") -> "Tensor":
+        return self.model("log_abs_det_jacobian", x, y)
+
     def __hash__(self) -> "int":
         return Module.__hash__(self)
 
+    # override
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}()"
+        return f"{type(self).__name__}(model: {self.model})"
 
     # override
     @property
@@ -79,9 +125,4 @@ class NormalizingFlow(ABC, Transform, Module):
     # override
     @abstractmethod
     def inverse_shape(self, shape: "Size") -> "Size":
-        raise NotImplementedError
-
-    # override
-    @abstractmethod
-    def _call(self, x: "Tensor") -> "Tensor":
         raise NotImplementedError

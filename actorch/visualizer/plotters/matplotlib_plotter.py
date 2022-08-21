@@ -25,8 +25,9 @@ class MatplotlibPlotter(Plotter):
     """Plotter based on Matplotlib backend."""
 
     # override
+    @classmethod
     def _plot_traces(
-        self,
+        cls,
         traces: "Dict[str, Tuple[ndarray, ndarray, ndarray]]",
         x_name: "str",
         y_name: "str",
@@ -72,19 +73,19 @@ class MatplotlibPlotter(Plotter):
         if os.path.isfile(style_filepath_or_name):
             style_filepath_or_name = os.path.realpath(style_filepath_or_name)
         if usetex:
-            x_name = x_name.replace("_", "\_")  # noqa: W605
-            y_name = y_name.replace("_", "\_")  # noqa: W605
+            x_name = x_name.replace("_", "\\_")  # noqa: W605
+            y_name = y_name.replace("_", "\\_")  # noqa: W605
         with plt.style.context(style_filepath_or_name):
             rc("text", usetex=usetex)
             fig = plt.figure(figsize=figsize)
             for trial_name, (x, mean, shift) in traces.items():
                 # Mean
                 label = (
-                    trial_name.replace("_", "\_")  # noqa: W605
+                    trial_name.replace("_", "\\_")  # noqa: W605
                     if usetex
                     else trial_name
                 )
-                plt.plot(x, mean, label=label)
+                plt.plot(x, mean, marker=".", label=label)
                 # Confidence interval
                 plt.fill_between(
                     x,

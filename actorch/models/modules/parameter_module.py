@@ -17,11 +17,12 @@ __all__ = [
 
 
 class ParameterModule(Module):
-    """Wrap a `torch.nn.Parameter` in a ``torch.nn.Module``."""
+    """Wrap a `torch.nn.Parameter` in a `torch.nn.Module`."""
 
-    parameter: Parameter
+    parameter: "Parameter"
     """The underlying parameter."""
 
+    # override
     def __init__(
         self,
         in_shape: "Tuple[int, ...]",
@@ -69,9 +70,10 @@ class ParameterModule(Module):
         )
         return expanded_parameter
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(in_shape: {self.in_shape}, "
             f"out_shape: {self.out_shape})"
         )

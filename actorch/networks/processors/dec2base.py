@@ -9,6 +9,7 @@ from typing import Tuple
 import torch
 from torch import Size, Tensor
 
+from actorch.networks.processors import base2dec as b2d  # Avoid circular import
 from actorch.networks.processors.processor import Processor
 
 
@@ -20,6 +21,7 @@ __all__ = [
 class Dec2Base(Processor):
     """Convert a tensor from base 10 to a given (possibly mixed) base."""
 
+    # override
     def __init__(self, base: "Tuple[int, ...]") -> "None":
         """Initialize the object.
 
@@ -42,24 +44,34 @@ class Dec2Base(Processor):
                     f"in the integer interval [1, inf)"
                 )
             self.base.append(x)
-        self.base = torch.as_tensor(self.base)
-        self._in_shape = torch.Size([1])
-        self._out_shape = torch.Size([len(self.base)])
-        self._max_value = self.base.prod(dim=-1)
-        weights = self.base.flip(dims=(-1,)).roll(1, dims=-1)
+        self.base = tuple(self.base)
+        self._tensor_base = torch.as_tensor(self.base)
+        self._in_shape = Size([])
+        self._out_shape = Size([len(self._tensor_base)])
+        self._max_value = self._tensor_base.prod(dim=-1)
+        weights = self._tensor_base.flip(dims=(-1,)).roll(1, dims=-1)
         weights[..., 0] = 1
         weights = weights.cumprod(dim=-1).flip(dims=(-1,)).movedim(-1, 0)
         self._weights = weights
+        super().__init__()
 
+    # override
     @property
     def in_shape(self) -> "Size":
         return self._in_shape
 
+    # override
     @property
     def out_shape(self) -> "Size":
         return self._out_shape
 
-    def __call__(self, input: "Tensor") -> "Tensor":
+    # override
+    @property
+    def inv(self) -> "b2d.Base2Dec":
+        return b2d.Base2Dec(self.base)
+
+    # override
+    def _forward(self, input: "Tensor") -> "Tensor":
         if ((input < 0) | (input >= self._max_value) | (input != input.int())).any():
             raise ValueError(
                 f"`input` ({input}) must be in the integer "
@@ -73,5 +85,6 @@ class Dec2Base(Processor):
             digits[..., -(i + 1)], digits[..., -(i + 2)] = quotient, remainder
         return digits[..., 1:].flip(dims=(-1,)).int()
 
+    # override
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}" f"(base: {self.base})"
+        return f"{type(self).__name__}(base: {self.base})"

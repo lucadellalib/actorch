@@ -6,6 +6,7 @@
 
 import atexit
 import multiprocessing as mp
+import signal
 import time
 from copy import deepcopy
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
@@ -13,6 +14,7 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 import cloudpickle
 import numpy as np
 from gym import Env
+from gym.utils import seeding
 from numpy import ndarray
 
 from actorch.envs.batched_env import BatchedEnv
@@ -24,57 +26,61 @@ __all__ = [
 ]
 
 
-class WorkerSharedMemory(mp.Process):
+class EnvWorkerSharedMemory(mp.Process):
     """Worker process that runs an environment.
 
     Observations are sent back to the main process through shared memory.
 
     """
 
+    # override
     def __init__(
         self,
-        env_builder: "Callable[..., Env]",
         connection: "mp.connection.Connection",
         shared_memory: "mp.RawArray",
         idx: "int",
-        env_config: "Optional[Dict[str, Any]]" = None,
+        env_builder: "Callable[..., Env]",
+        env_config: "Dict[str, Any]",
         daemon: "Optional[bool]" = None,
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
-        env_builder:
-            The environment builder, i.e. a callable that
-            receives keyword arguments from a configuration
-            and returns a base environment.
         connection:
             The connection for communicating with the main process.
         shared_memory:
             The shared memory for sending observations back to the
             main process.
         idx:
-            The worker index, used to locate the destination in the
-            shared memory to write observations to.
+            The environment worker index, used to locate the destination
+            in the shared memory to write observations to.
+        env_builder:
+            The environment builder, i.e. a callable that
+            receives keyword arguments from an environment
+            configuration and returns an environment.
         env_config:
             The environment configuration.
-            Default to ``{}``.
+            Argument `new_step_api` is set internally.
         daemon:
             True to run as a daemonic process, False otherwise.
+            If None, its value is inherited from the creating process.
 
         """
         super().__init__(daemon=daemon)
-        self._pickled_env_builder = cloudpickle.dumps(env_builder)
-        self._pickled_env_config = cloudpickle.dumps(env_config or {})
         self._connection = connection
         self._shared_memory = shared_memory
         self._idx = idx
+        self._pickled_env_builder = cloudpickle.dumps(env_builder)
+        self._pickled_env_config = cloudpickle.dumps(env_config)
 
     # override
     def run(self) -> "None":
         env = cloudpickle.loads(self._pickled_env_builder)(
-            **cloudpickle.loads(self._pickled_env_config)
+            **cloudpickle.loads(self._pickled_env_config),
+            new_step_api=True,
         )
+        env.new_step_api = True
         del self._pickled_env_builder
         del self._pickled_env_config
 
@@ -82,36 +88,40 @@ class WorkerSharedMemory(mp.Process):
         dummy_flat_observation = flatten(
             env.observation_space, env.observation_space.sample(), copy=False
         )
-        size = dummy_flat_observation.shape[0]
+        is_atleast_1d = dummy_flat_observation.ndim > 0
+        size = len(dummy_flat_observation) if is_atleast_1d else 1
         dtype = dummy_flat_observation.dtype
-        del dummy_flat_observation
         destination = np.frombuffer(
             self._shared_memory, dtype, size, (self._idx * size) * dtype.itemsize
         )
+        del dummy_flat_observation
+        del is_atleast_1d
+        del size
+        del dtype
         del self._idx
 
         try:
             while True:
                 command, data = self._connection.recv()
                 if command == "reset":
-                    observation = env.reset()
+                    observation, info = env.reset(return_info=True)
                     flat_observation = flatten(
                         env.observation_space, observation, copy=False
                     )
                     np.copyto(destination, flat_observation)
                     # Send (result, has_errored) to the main process
-                    self._connection.send((None, False))
+                    self._connection.send((info, False))
                 elif command == "step":
-                    observation, reward, done, info = env.step(data)
+                    observation, reward, terminal, truncated, info = env.step(data)
                     flat_observation = flatten(
                         env.observation_space, observation, copy=False
                     )
                     np.copyto(destination, flat_observation)
-                    self._connection.send(((reward, done, info), False))
+                    self._connection.send(((reward, terminal, truncated, info), False))
                 elif command == "seed":
-                    self._connection.send((env.seed(data), False))
-                elif command == "render":
-                    self._connection.send((env.render(**data), False))
+                    # Bypass deprecation warning
+                    env.np_random, _ = seeding.np_random(data)
+                    self._connection.send((None, False))
                 elif command == "close":
                     self._connection.send((None, False))
                     break
@@ -129,10 +139,13 @@ class WorkerSharedMemory(mp.Process):
 class ParallelBatchedEnv(BatchedEnv):
     """Batched environment based on subprocesses."""
 
+    _EnvWorker = EnvWorkerSharedMemory
+
+    # override
     def __init__(
         self,
-        env_builder: "Callable[..., Env]",
-        env_config: "Optional[Dict[str, Any]]" = None,
+        base_env_builder: "Callable[..., Env]",
+        base_env_config: "Optional[Dict[str, Any]]" = None,
         num_workers: "int" = 1,
         timeout_s: "float" = 60.0,
     ) -> "None":
@@ -140,12 +153,13 @@ class ParallelBatchedEnv(BatchedEnv):
 
         Parameters
         ----------
-        env_builder:
+        base_env_builder:
             The base environment builder, i.e. a callable that
-            receives keyword arguments from a configuration
-            and returns a base environment.
-        env_config:
+            receives keyword arguments from a base environment
+            configuration and returns a base environment.
+        base_env_config:
             The base environment configuration.
+            Argument `new_step_api` is set internally.
             Default to ``{}``.
         num_workers:
             The number of copies of the base environment.
@@ -158,119 +172,120 @@ class ParallelBatchedEnv(BatchedEnv):
             If `timeout_s` is not in the interval (0, inf).
 
         """
-        super().__init__(env_builder, env_config, num_workers)
+        super().__init__(base_env_builder, base_env_config, num_workers)
         if timeout_s <= 0.0:
             raise ValueError(
                 f"`timeout_s` ({timeout_s}) must be in the interval (0, inf)"
             )
         self.timeout_s = timeout_s
+        self._repr = f"{self._repr[:-2]}, timeout_s: {timeout_s})>"
         dummy_flat_observation = flatten(
             self.single_observation_space,
             self.single_observation_space.sample(),
             copy=False,
         )
-        size = len(dummy_flat_observation)
+        is_atleast_1d = dummy_flat_observation.ndim > 0
+        size = len(dummy_flat_observation) if is_atleast_1d else 1
         dtype = dummy_flat_observation.dtype
         typecode = dtype.char
         if typecode == "?":
             from ctypes import c_bool
 
             typecode = c_bool
-        # No locking required, as each child process writes
+        # No locking required, as each environment worker writes
         # to a non-overlapping portion of the shared memory
         shared_memory = mp.RawArray(typecode, num_workers * size)
-        self._parents, self._processes = [], []
+        self._connections, self._env_workers = [], []
         for i in range(num_workers):
-            parent, child = mp.Pipe()
-            self._parents.append(parent)
-            process = WorkerSharedMemory(
-                self.env_builder,
+            connection, child = mp.Pipe()
+            self._connections.append(connection)
+            env_worker = self._EnvWorker(
                 child,
                 shared_memory,
                 i,
-                self.env_config,
+                self.base_env_builder,
+                self.base_env_config,
                 daemon=True,
             )
-            self._processes.append(process)
-            process.start()
-            child.close()  # Close after starting the process
+            self._env_workers.append(env_worker)
+            env_worker.start()
+            child.close()  # Close after starting the environment worker
         self._observation_buffer = np.frombuffer(shared_memory, dtype).reshape(
-            num_workers, -1
+            (num_workers,) + ((-1,) if is_atleast_1d else ())
         )
         self._reward = np.zeros(num_workers)
-        self._done = np.zeros(num_workers, dtype=bool)
+        self._terminal = np.zeros(num_workers, dtype=bool)
+        self._truncated = np.zeros(num_workers, dtype=bool)
         self._info = np.array([{} for _ in range(num_workers)])
         # True to unflatten the observation, False otherwise
         # Used by FlattenObservation wrapper to improve performance
         self.unflatten_observation = True
         # Fix AttributeError: 'NoneType' object has no attribute 'dumps'
         atexit.register(self.close)
+        signal.signal(signal.SIGTERM, self.close)
+        signal.signal(signal.SIGINT, self.close)
 
     # override
-    def _reset(self, idx: "Sequence[int]") -> "Nested[ndarray]":
+    def _reset(self, idx: "Sequence[int]") -> "Tuple[Nested[ndarray], ndarray]":
         for i in idx:
-            self._parents[i].send(["reset", None])
+            self._connections[i].send(["reset", None])
         self._poll(idx)
         errors = []
         for i in idx:
-            result, has_errored = self._parents[i].recv()
+            result, has_errored = self._connections[i].recv()
             if has_errored:
                 errors.append((i, result))
+            else:
+                self._info[i] = result
         self._raise(errors)
         observation = (
-            unflatten(self.observation_space, self._observation_buffer)
+            unflatten(self.observation_space, self._observation_buffer, is_batched=True)
             if self.unflatten_observation
             else np.array(self._observation_buffer)
         )  # Copy
-        return observation
+        return observation, deepcopy(self._info)
 
     # override
     def _step(
         self, action: "Sequence[Nested]", idx: "Sequence[int]"
-    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray]":
+    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray, ndarray]":
         for i in idx:
-            self._parents[i].send(["step", action[i]])
+            self._connections[i].send(["step", action[i]])
         self._poll(idx)
         errors = []
         for i in idx:
-            result, has_errored = self._parents[i].recv()
+            result, has_errored = self._connections[i].recv()
             if has_errored:
                 errors.append((i, result))
             else:
-                self._reward[i], self._done[i], self._info[i] = result
+                (
+                    self._reward[i],
+                    self._terminal[i],
+                    self._truncated[i],
+                    self._info[i],
+                ) = result
         self._raise(errors)
         observation = (
-            unflatten(self.observation_space, self._observation_buffer)
+            unflatten(self.observation_space, self._observation_buffer, is_batched=True)
             if self.unflatten_observation
             else np.array(self._observation_buffer)
         )  # Copy
         return (
             observation,
             np.array(self._reward),  # Copy
-            np.array(self._done),  # Copy
+            np.array(self._terminal),  # Copy
+            np.array(self._truncated),  # Copy
             deepcopy(self._info),
         )
 
     # override
     def _seed(self, seed: "Sequence[Optional[int]]") -> "None":
-        for i, parent in enumerate(self._parents):
-            parent.send(["seed", seed[i]])
+        for i, connection in enumerate(self._connections):
+            connection.send(["seed", seed[i]])
         self._poll()
         errors = []
-        for i, parent in enumerate(self._parents):
-            result, has_errored = parent.recv()
-            if has_errored:
-                errors.append((i, result))
-        self._raise(errors)
-
-    # override
-    def _render(self, idx: "Sequence[int]", **kwargs: "Any") -> "None":
-        for i in idx:
-            self._parents[i].send(["render", kwargs])
-        self._poll(idx)
-        errors = []
-        for i in idx:
-            result, has_errored = self._parents[i].recv()
+        for i, connection in enumerate(self._connections):
+            result, has_errored = connection.recv()
             if has_errored:
                 errors.append((i, result))
         self._raise(errors)
@@ -278,16 +293,16 @@ class ParallelBatchedEnv(BatchedEnv):
     # override
     def _close(self) -> "None":
         try:
-            for parent in self._parents:
-                parent.send(["close", None])
+            for connection in self._connections:
+                connection.send(["close", None])
             self._poll()
             errors = []
-            for i, parent in enumerate(self._parents):
-                result, has_errored = parent.recv()
+            for i, connection in enumerate(self._connections):
+                result, has_errored = connection.recv()
                 if has_errored:
                     errors.append((i, result))
             self._raise(errors)
-        except (BrokenPipeError, OSError):
+        except OSError:
             pass
         finally:
             self._cleanup()
@@ -299,9 +314,9 @@ class ParallelBatchedEnv(BatchedEnv):
         end_time = time.perf_counter() + self.timeout_s
         for i in idx:
             timeout = max(end_time - time.perf_counter(), 0)
-            if not self._parents[i].poll(timeout):
+            if not self._connections[i].poll(timeout):
                 error_msgs.append(
-                    f"[Worker {i}] Operation has timed out after {self.timeout_s} second(s)"
+                    f"[Environment worker {i}] Operation has timed out after {self.timeout_s} second(s)"
                 )
         if error_msgs:
             self._cleanup()
@@ -309,14 +324,14 @@ class ParallelBatchedEnv(BatchedEnv):
 
     def _raise(self, errors: "Sequence[Tuple[int, str]]") -> "None":
         if errors:
-            error_msgs = [f"[Worker {i}] {traceback}" for i, traceback in errors]
+            error_msgs = [
+                f"[Environment worker {i}] {traceback}" for i, traceback in errors
+            ]
             self._cleanup()
             raise RuntimeError(f"\n{''.join(error_msgs)}")
 
     def _cleanup(self) -> "None":
-        for parent in self._parents:
-            parent.close()
-        for process in self._processes:
-            if process.is_alive():
-                process.terminate()
-            process.join()
+        for connection in self._connections:
+            connection.close()
+        for env_worker in self._env_workers:
+            env_worker.join()

@@ -6,7 +6,6 @@
 
 from typing import Optional, Sequence, Tuple, Union
 
-from gym import ActionWrapper
 from numpy import ndarray
 
 from actorch.envs.batched_env import BatchedEnv
@@ -20,26 +19,22 @@ __all__ = [
 ]
 
 
-class BatchedUnflattenAction(BatchedWrapper, ActionWrapper):
+class BatchedUnflattenAction(BatchedWrapper):
     """Batched environment wrapper that unflattens the action."""
 
+    # override
     def __init__(self, env: "BatchedEnv") -> "None":
         super().__init__(env)
-        self.single_action_space = Flat(env.single_action_space)
-        self.action_space = Flat(env.action_space, is_batched=True)
+        self._single_action_space = Flat(env.single_action_space)
+        self._action_space = Flat(env.action_space, is_batched=True)
 
     # override
     def step(
         self,
         action: "ndarray",
         mask: "Optional[Union[bool, Sequence[bool], ndarray]]" = None,
-    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray]":
-        return self.env.step(self.action(action), mask)
+    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray, ndarray]":
+        return self.env.step(self._action(action), mask)
 
-    # override
-    def action(self, action: "ndarray") -> "Nested[ndarray]":
-        return self.action_space.unflatten(action)
-
-    # override
-    def reverse_action(self, action: "Nested[ndarray]") -> "ndarray":
-        return self.action_space.flatten(action)
+    def _action(self, action: "ndarray") -> "Nested[ndarray]":
+        return self._action_space.unflatten(action)

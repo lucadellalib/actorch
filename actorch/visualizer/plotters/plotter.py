@@ -23,8 +23,9 @@ __all__ = [
 class Plotter(ABC):
     """Plot progress data."""
 
+    @classmethod
     def plot(
-        self,
+        cls,
         data: "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]",
         output_dirpath: "str" = "plots",
         x_name: "str" = "training_iteration",
@@ -90,14 +91,14 @@ class Plotter(ABC):
                 for trial_name, (mean, stddev) in y_trials.items():
                     x = x_trials[trial_name][0]
                     mask = np.isfinite(x) & np.isfinite(mean)
-                    x, mean, stddev = x[mask], mean[mask], stddev[mask]
                     stddev[~np.isfinite(stddev)] = 0.0
-                    mean = self._exponential_moving_average(mean, smoothing)
-                    shift = num_stddevs * np.sqrt(
-                        self._exponential_moving_average(stddev**2, smoothing)
+                    mean[mask] = cls._exponential_moving_average(mean[mask], smoothing)
+                    shift = stddev.copy()
+                    shift[mask] = num_stddevs * np.sqrt(
+                        cls._exponential_moving_average(stddev[mask] ** 2, smoothing)
                     )
                     traces[trial_name] = (x, mean, shift)
-                self._plot_traces(
+                cls._plot_traces(
                     traces,
                     x_name,
                     y_name.replace("_", " ").capitalize(),
@@ -124,10 +125,10 @@ class Plotter(ABC):
         parser_kwargs.setdefault("description", "Plot progress data")
         parser = ArgumentParser(**parser_kwargs)
         parser.add_argument(
-            "--output-dir",
+            "--output-dirpath",
             default="plots",
             help="absolute or relative path to the output directory",
-            dest="output_dirpath",
+            metavar="output-dir",
         )
         parser.add_argument(
             "-x",
@@ -158,8 +159,9 @@ class Plotter(ABC):
         )
         return parser
 
+    @classmethod
     def _exponential_moving_average(
-        self, values: "ndarray", smoothing: "float" = 0.0
+        cls, values: "ndarray", smoothing: "float" = 0.0
     ) -> "ndarray":
         # This is the same smoothing algorithm used by TensorBoard
         # (see https://github.com/tensorflow/tensorboard/blob/2.6/tensorboard/components/vz_line_chart2/line-chart.ts#L714)
@@ -171,12 +173,10 @@ class Plotter(ABC):
                 output.append(last)
         return np.array(output)
 
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}()"
-
+    @classmethod
     @abstractmethod
     def _plot_traces(
-        self,
+        cls,
         traces: "Dict[str, Tuple[ndarray, ndarray, ndarray]]",
         x_name: "str",
         y_name: "str",

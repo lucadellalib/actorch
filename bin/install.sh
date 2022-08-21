@@ -54,10 +54,10 @@ else
   conda env create -n $env_name -f $root_dirpath/conda/environment-$platform.yml --force
 fi
 
-echo "Installing ACTorch..."
+echo "Installing actorch..."
 cd $root_dirpath
 conda activate $env_name
-pip install -e .[dev]
+pip install -e .[all]
 if [ -d ".git" ]; then
   echo "Installing git commit hook..."
   pre-commit install -f

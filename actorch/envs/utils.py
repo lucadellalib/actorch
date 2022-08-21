@@ -65,11 +65,13 @@ def batch_space(space: "spaces.Space", batch_size: "int" = 1) -> "spaces.Space":
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @batch_space.register(Custom)
     >>> def _batch_space_custom(space, batch_size=1):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -116,11 +118,13 @@ def unnest_space(
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @unnest_space.register(Custom)
     >>> def _unnest_space_custom(space, prefix=""):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -160,11 +164,13 @@ def get_space_bounds(space: "spaces.Space") -> "Tuple[Nested, Nested]":
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @get_space_bounds.register(Custom)
     >>> def _get_space_bounds_custom(space):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -197,7 +203,7 @@ def flatten(
         `space`), False otherwise.
     copy:
         True to return a copy, False otherwise
-        (if possible according to NumPy copying rules).
+        (if possible according to NumPy copying semantics).
     validate_args:
         True to validate the arguments, False otherwise.
 
@@ -205,20 +211,29 @@ def flatten(
     -------
         The (possibly batched) flat sample.
 
+    Raises
+    ------
+    ValueError
+        If an invalid argument value is given.
+
     """
     unnested = unnest(space, x, validate_args)
-    batch_shape = (len(unnested[0]),) if is_batched else ()
+    try:
+        batch_shape = (len(unnested[0]),) if is_batched else ()
+    except Exception:
+        raise ValueError(f"`space` ({space}) and `x` ({x}) must be batched")
     if len(unnested) == 1:
-        return np.array(unnested[0], copy=copy).reshape(*batch_shape, -1)
+        array = np.array(unnested[0], copy=copy)
+        if array.ndim < 2:
+            return array
+        return array.reshape(*batch_shape, -1)
     arrays = []
     ndmin = 1
     for v in unnested:
         try:
             array = np.asarray(v).reshape(*batch_shape, -1)
         except Exception:
-            raise ValueError(
-                f"`x` ({x}) must be a batched sample from `space` ({space})"
-            )
+            raise ValueError(f"`x` ({x}) must be a sample from `space` ({space})")
         if array.ndim > ndmin:
             ndmin = array.ndim
         arrays.append(array)
@@ -226,12 +241,15 @@ def flatten(
     return np.concatenate(arrays, axis=-1)  # Copy
 
 
-_UNFLATTEN_CACHE = {}  # Cache split_idxes to improve performance of unflatten
+_UNFLATTEN_CACHE: "Dict[Tuple[int, bool], ndarray]" = (
+    {}
+)  # Cache split_idxes to improve performance of unflatten
 
 
 def unflatten(
     space: "spaces.Space",
     x: "ndarray",
+    is_batched: "bool" = False,
     copy: "bool" = True,
     validate_args: "bool" = False,
 ) -> "Nested":
@@ -244,9 +262,13 @@ def unflatten(
         The (possibly batched) space.
     x:
         The (possibly batched) flat sample.
+    is_batched:
+        True to preserve the batch size (if `x`
+        is a batched sample from batched space
+        `space`), False otherwise.
     copy:
         True to return a copy, False otherwise
-        (if possible according to NumPy copying rules).
+        (if possible according to NumPy copying semantics).
     validate_args:
         True to validate the arguments, False otherwise.
 
@@ -254,8 +276,12 @@ def unflatten(
     -------
         The (possibly batched) sample.
 
+    Raises
+    ------
+    ValueError
+        If `x` is not a batched flat sample from `space`.
+
     """
-    is_batched = x.ndim == 2
     batch_shape = (len(x),) if is_batched else ()
     try:
         split_idxes = _UNFLATTEN_CACHE[id(space), is_batched]
@@ -275,7 +301,7 @@ def unflatten(
             arrays.append(array)
         lengths = np.asarray(
             [np.array(v.T, copy=False, ndmin=ndmin).T.shape[-1] for v in arrays],
-            dtype=int,
+            dtype=np.int64,
         )
         split_idxes = lengths[:-1].cumsum()
         _UNFLATTEN_CACHE[id(space), is_batched] = split_idxes
@@ -323,11 +349,13 @@ def unnest(
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @unnest.register(Custom)
     >>> def _unnest_custom(space, x, validate_args=False):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -375,11 +403,13 @@ def nest(
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @nest.register(Custom)
     >>> def _nest_custom(space, x, validate_args=False):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -427,11 +457,13 @@ def batch(
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @batch.register(Custom)
     >>> def _batch_custom(space, x, validate_args=False):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -479,11 +511,13 @@ def unbatch(
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @unbatch.register(Custom)
     >>> def _unbatch_custom(space, x, validate_args=False):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -536,11 +570,13 @@ def get_log_prob(
     >>>
     >>> class Custom(spaces.Space):
     >>>     # Implementation
+    >>>     ...
     >>>
     >>>
     >>> @unbatch.register(Custom)
     >>> def _get_log_prob_custom(space, x, is_batched=False, validate_args=False):
     >>>     # Implementation
+    >>>     ...
 
     """
     raise NotImplementedError(
@@ -803,7 +839,9 @@ def _nest_discrete(
         raise ValueError(f"`x` ({x}) must be an unnested sample from `space` ({space})")
 
 
-_NEST_CACHE = {}  # Cache split_idxes to improve performance of nest
+_NEST_CACHE: "Dict[int, ndarray]" = (
+    {}
+)  # Cache split_idxes to improve performance of nest
 
 
 @nest.register(spaces.Tuple)
@@ -816,7 +854,7 @@ def _nest_tuple(
         split_idxes = _NEST_CACHE[id(space)]
     except KeyError:
         lengths = [len(unnest(v, v.sample())) for v in space]
-        split_idxes = np.asarray([0] + lengths, dtype=int).cumsum()
+        split_idxes = np.asarray([0] + lengths, dtype=np.int64).cumsum()
         _NEST_CACHE[id(space)] = split_idxes
     try:
         result = tuple(
@@ -838,7 +876,7 @@ def _nest_dict(
         split_idxes = _NEST_CACHE[id(space)]
     except KeyError:
         lengths = [len(unnest(v, v.sample())) for v in space.values()]
-        split_idxes = np.asarray([0] + lengths, dtype=int).cumsum()
+        split_idxes = np.asarray([0] + lengths, dtype=np.int64).cumsum()
         _NEST_CACHE[id(space)] = split_idxes
     try:
         result = {
@@ -937,7 +975,7 @@ def _unbatch_base(
         if x not in space:
             raise ValueError(f"`x` ({x}) must be a sample from `space` ({space})")
         if len(space.shape) == 0:
-            raise ValueError(f"`x` ({x}) and `space` ({space}) must be batched")
+            raise ValueError(f"`space` ({space}) and `x` ({x}) must be batched")
     return list(x)
 
 
@@ -993,7 +1031,7 @@ def _get_log_prob_box(
         if x not in space:
             raise ValueError(f"`x` ({x}) must be a sample from `space` ({space})")
         if is_batched and len(space.shape) == 0:
-            raise ValueError(f"`x` ({x}) and `space` ({space}) must be batched")
+            raise ValueError(f"`space` ({space}) and `x` ({x}) must be batched")
     unbounded = ~space.bounded_below & ~space.bounded_above
     lower_bounded = space.bounded_below & ~space.bounded_above
     upper_bounded = ~space.bounded_below & space.bounded_above
@@ -1042,7 +1080,7 @@ def _get_log_prob_multi_binary(
         if x not in space:
             raise ValueError(f"`x` ({x}) must be a sample from `space` ({space})")
         if is_batched and len(space.shape) == 0:
-            raise ValueError(f"`x` ({x}) and `space` ({space}) must be batched")
+            raise ValueError(f"`space` ({space}) and `x` ({x}) must be batched")
     result = np.log(np.full(x.shape, 0.5))
     return result.sum(axis=tuple(range(is_batched, result.ndim)))
 
@@ -1058,7 +1096,7 @@ def _get_log_prob_multi_discrete(
         if x not in space:
             raise ValueError(f"`x` ({x}) must be a sample from `space` ({space})")
         if is_batched and len(space.shape) == 0:
-            raise ValueError(f"`x` ({x}) and `space` ({space}) must be batched")
+            raise ValueError(f"`space` ({space}) and `x` ({x}) must be batched")
     result = stats.randint(np.zeros_like(space.nvec), space.nvec).logpmf(x)
     return result.sum(axis=tuple(range(is_batched, result.ndim)))
 

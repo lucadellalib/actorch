@@ -4,7 +4,7 @@
 
 """Kullback-Leibler divergence registry."""
 
-from typing import Union
+from typing import List, Union
 
 import torch
 from torch import Tensor
@@ -28,7 +28,7 @@ from actorch.distributions.transformed_distribution import TransformedDistributi
 from actorch.distributions.utils import l2_project
 
 
-__all__ = []
+__all__: "List[str]" = []
 
 
 #####################################################################################################

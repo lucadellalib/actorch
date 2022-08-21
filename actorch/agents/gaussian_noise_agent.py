@@ -4,14 +4,13 @@
 
 """Gaussian noise agent."""
 
-from typing import Optional, Tuple, Union
+from typing import Tuple, Union
 
 import numpy as np
 from gym.spaces import Space
 from numpy import ndarray
 from torch import device
 
-from actorch.agents.deterministic_agent import DeterministicAgent
 from actorch.agents.stochastic_agent import StochasticAgent
 from actorch.networks import PolicyNetwork
 
@@ -21,19 +20,22 @@ __all__ = [
 ]
 
 
-class GaussianNoiseAgent(StochasticAgent, DeterministicAgent):
+class GaussianNoiseAgent(StochasticAgent):
     """Agent that adds Gaussian noise to the action."""
 
+    _STATE_VARS = StochasticAgent._STATE_VARS + ["mean", "stddev"]  # override
+
+    # override
     def __init__(
         self,
         policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
-        is_batched: "bool" = False,
+        clip_action: "bool" = True,
+        device: "Union[device, str]" = "cpu",
+        num_random_timesteps: "int" = 0,
         mean: "float" = 0.0,
         stddev: "float" = 0.1,
-        num_random_timesteps: "int" = 0,
-        device: "Optional[Union[device, str]]" = "cpu",
     ) -> "None":
         """Initialize the object.
 
@@ -45,20 +47,21 @@ class GaussianNoiseAgent(StochasticAgent, DeterministicAgent):
             The (possibly batched) observation space.
         action_space:
             The (possibly batched) action space.
-        is_batched:
-            True if `observation_space` and `action_space`
-            are batched, False otherwise.
+        clip_action:
+            True to clip the (possibly batched) action to
+            the (possibly batched) action space bounds,
+            False otherwise.
+        device:
+            The device.
+        num_random_timesteps:
+            The number of initial timesteps for which
+            a random prediction is returned.
         mean:
             The noise Gaussian distribution mean
             (`mu` in the literature).
         stddev:
-            The noise Gaussian distribution standard deviation
-            (`sigma` in the literature).
-        num_random_timesteps:
-            The number of initial timesteps for which
-            a random prediction is returned.
-        device:
-            The device.
+            The noise Gaussian distribution standard
+            deviation (`sigma` in the literature).
 
         Raises
         ------
@@ -70,21 +73,21 @@ class GaussianNoiseAgent(StochasticAgent, DeterministicAgent):
             raise ValueError(f"`stddev` ({stddev}) must be in the interval (0, inf)")
         self.mean = mean
         self.stddev = stddev
-        StochasticAgent.__init__(
-            self,
+        super().__init__(
             policy_network,
             observation_space,
             action_space,
-            is_batched,
-            num_random_timesteps,
+            clip_action,
             device,
+            num_random_timesteps,
         )
 
     # override
     def _stochastic_predict(
         self, flat_observation: "ndarray"
     ) -> "Tuple[ndarray, ndarray]":
-        flat_action, log_prob = DeterministicAgent._predict(self, flat_observation)
+        flat_action, log_prob = super(StochasticAgent, self)._predict(flat_observation)
+        flat_action = flat_action.astype(np.float32)
         flat_action += np.random.normal(
             self.mean,
             self.stddev,
@@ -92,15 +95,16 @@ class GaussianNoiseAgent(StochasticAgent, DeterministicAgent):
         )
         return flat_action, log_prob
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
-            f"is_batched: {self.is_batched}, "
-            f"mean: {self.mean}, "
-            f"stddev: {self.stddev}, "
+            f"clip_action: {self.clip_action}, "
+            f"device: {self.device}, "
             f"num_random_timesteps: {self.num_random_timesteps}, "
-            f"device: {self.device})"
+            f"mean: {self.mean}, "
+            f"stddev: {self.stddev})"
         )

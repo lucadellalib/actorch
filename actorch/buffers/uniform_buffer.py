@@ -24,6 +24,14 @@ class UniformBuffer(Buffer):
 
     """
 
+    _STATE_VARS = Buffer._STATE_VARS + [
+        "_experiences",
+        "_terminals",
+        "_num_experiences",
+        "_idx",
+        "_overflow",
+        "_cache",
+    ]  # override
     _INITIAL_CAPACITY = 1024
     _CAPACITY_MULTIPLIER = 2
 
@@ -38,16 +46,18 @@ class UniformBuffer(Buffer):
         return len(self._full_trajectory_start_idx) if self._num_experiences > 0 else 0
 
     # override
-    def reset(self) -> "None":
+    def _reset(self) -> "None":
+        super()._reset()
+        initial_capacity = min(self.capacity, self._INITIAL_CAPACITY)
         self._experiences = {
-            k: np.zeros((self._INITIAL_CAPACITY, *v["shape"]), dtype=v["dtype"])
+            k: np.zeros((initial_capacity, *v["shape"]), dtype=v["dtype"])
             for k, v in self.spec.items()
         }
-        self._terminals = np.zeros(self._INITIAL_CAPACITY, dtype=bool)
+        self._terminals = np.zeros(initial_capacity, dtype=bool)
         self._num_experiences = 0
         self._idx = None
         self._overflow = False
-        self._cache = {}
+        self._cache: "Dict[str, ndarray]" = {}
 
     # override
     def _add(
@@ -59,11 +69,16 @@ class UniformBuffer(Buffer):
         self._cache.clear()
         batch_size = len(terminal)
         if self._idx is None:
+            if batch_size > self.capacity:
+                raise ValueError(
+                    f"Batch size ({batch_size}) must be in the integer interval "
+                    f"[1, `capacity` initialization argument ({self.capacity})]"
+                )
             self._idx = np.arange(-batch_size, 0, dtype=np.int64)
         if batch_size != self._batch_size:
             raise ValueError(
-                f"Batch size ({batch_size}) must be constant ({self._batch_size}) "
-                f"throughout calls of `add`"
+                f"Batch size ({batch_size}) must remain equal to its initial "
+                f"value ({self._batch_size}) throughout calls of `add`"
             )
         self._idx += batch_size
         if not self._overflow:
@@ -138,7 +153,7 @@ class UniformBuffer(Buffer):
         self,
         batch_size: "int",
     ) -> "Tuple[ndarray, ndarray]":
-        # Select `batch_size` (possibly independent) batched
+        # Select batch_size (possibly independent) batched
         # experience trajectories uniformly at random
         trajectory_start_idx = np.random.choice(
             self._full_trajectory_start_idx,

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
-from gym import Env
+from gym import Env, Space
 from numpy import ndarray
 
 from actorch.envs.utils import Nested, batch_space, unbatch
@@ -19,25 +19,29 @@ __all__ = [
 ]
 
 
-class BatchedEnv(ABC, Env):
-    """Environment that runs multiple copies of a base environment."""
+class BatchedEnv(ABC):
+    """Environment that runs multiple copies of a base
+    environment in a synchronous fashion.
+
+    """
 
     def __init__(
         self,
-        env_builder: "Callable[..., Env]",
-        env_config: "Optional[Dict[str, Any]]" = None,
+        base_env_builder: "Callable[..., Env]",
+        base_env_config: "Optional[Dict[str, Any]]" = None,
         num_workers: "int" = 1,
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
-        env_builder:
+        base_env_builder:
             The base environment builder, i.e. a callable that
-            receives keyword arguments from a configuration
-            and returns a base environment.
-        env_config:
+            receives keyword arguments from a base environment
+            configuration and returns a base environment.
+        base_env_config:
             The base environment configuration.
+            Argument `new_step_api` is set internally.
             Default to ``{}``.
         num_workers:
             The number of copies of the base environment.
@@ -53,31 +57,84 @@ class BatchedEnv(ABC, Env):
                 f"`num_workers` ({num_workers}) must be in the integer interval [1, inf)"
             )
         num_workers = int(num_workers)
-        self.env_builder = env_builder
-        self.env_config = env_config or {}
+        self.base_env_builder = base_env_builder
+        self.base_env_config = base_env_config or {}
         self.num_workers = num_workers
-        dummy_env = self.env_builder(**self.env_config)
-        self.single_observation_space = dummy_env.observation_space
-        self.single_action_space = dummy_env.action_space
-        self.metadata = dummy_env.metadata
-        self.reward_range = dummy_env.reward_range
-        self.spec = dummy_env.spec
-        self._repr = (
-            f"<{self.__class__.__name__}"
-            f"(env: {dummy_env}, "
-            f"num_workers: {num_workers})>"
+        with self.base_env_builder(
+            **self.base_env_config, new_step_api=True
+        ) as base_env:
+            self._single_observation_space = base_env.observation_space
+            self._single_action_space = base_env.action_space
+            self._repr = (
+                f"<{type(self).__name__}"
+                f"(base_env: {base_env}, "
+                f"num_workers: {num_workers})>"
+            )
+        self._observation_space = batch_space(
+            self.single_observation_space, num_workers
         )
-        dummy_env.close()
-        del dummy_env
-        self.observation_space = batch_space(self.single_observation_space, num_workers)
-        self.action_space = batch_space(self.single_action_space, num_workers)
+        self._action_space = batch_space(self.single_action_space, num_workers)
         self._is_closed = False
 
-    # override
+    @property
+    def single_observation_space(self) -> "Space":
+        """Return the single observation space.
+
+        Returns
+        -------
+            The single observation space.
+
+        """
+        return self._single_observation_space
+
+    @property
+    def single_action_space(self) -> "Space":
+        """Return the single action space.
+
+        Returns
+        -------
+            The single action space.
+
+        """
+        return self._single_action_space
+
+    @property
+    def observation_space(self) -> "Space":
+        """Return the observation space.
+
+        Returns
+        -------
+            The observation space.
+
+        """
+        return self._observation_space
+
+    @property
+    def action_space(self) -> "Space":
+        """Return the action space.
+
+        Returns
+        -------
+            The action space.
+
+        """
+        return self._action_space
+
+    @property
+    def unwrapped(self) -> "BatchedEnv":
+        """Return the unwrapped environment.
+
+        Returns
+        -------
+            The unwrapped environment.
+
+        """
+        return self
+
     def reset(
         self,
         mask: "Optional[Union[bool, Sequence[bool], ndarray]]" = None,
-    ) -> "Nested[ndarray]":
+    ) -> "Tuple[Nested[ndarray], ndarray]":
         """Reset a batch of workers.
 
         In the following, let `N` denote the number of workers
@@ -93,8 +150,8 @@ class BatchedEnv(ABC, Env):
 
         Returns
         -------
-            The batched initial observation,
-            shape of a leaf value: ``[N, *O]``.
+            - The batched initial observation, shape of a leaf value: ``[N, *O]``;
+            - the batched auxiliary diagnostic information, shape: ``[N]``.
 
         Raises
         ------
@@ -105,8 +162,9 @@ class BatchedEnv(ABC, Env):
 
         Warnings
         --------
-        If ``mask[i]`` is False, the corresponding
-        observation preserves its previous value.
+        If ``mask[i]`` is False, the corresponding observation
+        and auxiliary diagnostic information preserve their
+        previous values.
 
         """
         if self._is_closed:
@@ -125,12 +183,11 @@ class BatchedEnv(ABC, Env):
         idx = np.where(mask)[0].tolist()
         return self._reset(idx)
 
-    # override
     def step(
         self,
         action: "Nested[ndarray]",
         mask: "Optional[Union[bool, Sequence[bool], ndarray]]" = None,
-    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray]":
+    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray, ndarray]":
         """Step a batch of workers.
 
         In the following, let `N` denote the number of workers,
@@ -151,7 +208,8 @@ class BatchedEnv(ABC, Env):
         -------
             - The batched next observation, shape of a leaf value: ``[N, *O]``;
             - the batched reward, shape: ``[N]``;
-            - the batched end-of-episode flag, shape: ``[N]``;
+            - the batched terminal flag, shape: ``[N]``;
+            - the batched truncated flag, shape: ``[N]``;
             - the batched auxiliary diagnostic information, shape: ``[N]``.
 
         Raises
@@ -159,15 +217,14 @@ class BatchedEnv(ABC, Env):
         RuntimeError
             If the environment has already been closed.
         ValueError
-            If length of `mask` or `action` is not equal
+            If length of `action` or `mask` is not equal
             to the number of workers.
 
         Warnings
         --------
-        If ``mask[i]`` is False, the corresponding
-        observation, reward, end-of-episode flag and
-        auxiliary diagnostic information preserve
-        their previous value.
+        If ``mask[i]`` is False, the corresponding observation,
+        reward, terminal flag, truncated flag and auxiliary
+        diagnostic information preserve their previous values.
 
         """
         if self._is_closed:
@@ -192,7 +249,6 @@ class BatchedEnv(ABC, Env):
         idx = np.where(mask)[0].tolist()
         return self._step(action, idx)
 
-    # override
     def seed(
         self,
         seed: "Union[Optional[int], Sequence[Optional[int]], ndarray]" = None,
@@ -243,54 +299,11 @@ class BatchedEnv(ABC, Env):
         elif isinstance(seed, np.ndarray):
             seed = seed.tolist()
         self.single_observation_space.seed(seed[0])
-        self.observation_space.seed(seed[0])
         self.single_action_space.seed(seed[0])
+        self.observation_space.seed(seed[0])
         self.action_space.seed(seed[0])
         self._seed(seed)
 
-    # override
-    def render(
-        self,
-        mask: "Optional[Union[bool, Sequence[bool], ndarray]]" = None,
-        **kwargs: "Any",
-    ) -> "None":
-        """Render a batch of workers.
-
-        In the following, let `N` denote the number of workers.
-
-        Parameters
-        ----------
-        mask:
-            The boolean array indicating which workers are
-            to render (True) and which are not (False), shape: ``[N]``.
-            If a scalar or a singleton, it is broadcast accordingly.
-            Default to ``np.ones(N, dtype=bool)``.
-
-        Raises
-        ------
-        RuntimeError
-            If the environment has already been closed.
-        ValueError
-            If length of `mask` is not equal to the number of workers.
-
-        """
-        if self._is_closed:
-            raise RuntimeError("Trying to render a closed environment")
-        if mask is None:
-            mask = np.ones(self.num_workers, dtype=bool)
-        else:
-            mask = np.array(mask, copy=False, ndmin=1)
-            if len(mask) == 1:
-                mask = np.broadcast_to(mask, (self.num_workers,))
-            if len(mask) != self.num_workers:
-                raise ValueError(
-                    f"Length of `mask` ({len(mask)}) must be equal "
-                    f"to the number of workers ({self.num_workers})"
-                )
-        idx = np.where(mask)[0].tolist()
-        self._render(idx, **kwargs)
-
-    # override
     def close(self) -> "None":
         """Close all workers."""
         if self._is_closed:
@@ -301,35 +314,35 @@ class BatchedEnv(ABC, Env):
     def __len__(self) -> "int":
         return self.num_workers
 
-    def __del__(self) -> "None":
+    def __enter__(self) -> "BatchedEnv":
+        return self
+
+    def __exit__(self, *args: "Any", **kwargs: "Any") -> "None":
         if not self._is_closed:
+            self.close()
+
+    def __del__(self) -> "None":
+        if hasattr(self, "_is_closed") and not self._is_closed:
             self.close()
 
     def __repr__(self) -> "str":
         return self._repr
 
-    __str__ = __repr__
-
     @abstractmethod
-    def _reset(self, idx: "Sequence[int]") -> "Nested[ndarray]":
+    def _reset(self, idx: "Sequence[int]") -> "Tuple[Nested[ndarray], ndarray]":
         """See documentation of `reset`."""
         raise NotImplementedError
 
     @abstractmethod
     def _step(
         self, action: "Sequence[Nested]", idx: "Sequence[int]"
-    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray]":
+    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray, ndarray]":
         """See documentation of `step`."""
         raise NotImplementedError
 
     @abstractmethod
     def _seed(self, seed: "Sequence[Optional[int]]") -> "None":
         """See documentation of `seed`."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def _render(self, idx: "Sequence[int]", **kwargs: "Any") -> "None":
-        """See documentation of `render`."""
         raise NotImplementedError
 
     @abstractmethod

@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 import numpy as np
 from ray.tune import logger
-from ray.tune.result import TIME_TOTAL_S, TIMESTEPS_TOTAL, TRAINING_ITERATION
+from ray.tune.result import TIMESTEPS_TOTAL, TRAINING_ITERATION
 from ray.tune.trial import Trial
 from ray.tune.utils import flatten_dict
 from ray.util.debug import log_once
@@ -28,7 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 # https://github.com/ray-project/ray/blob/7f1bacc7dc9caf6d0ec042e39499bbf1d9a7d065/python/ray/tune/logger.py#L161
 class TBXLogger(logger.TBXLogger):
     """Modified version of `ray.tune.logger.TBXLogger` that logs
-    values without prepending `ray/tune` to their tags.
+    values without prepending ``"ray/tune"`` to their tags.
 
     """
 
@@ -40,7 +40,7 @@ class TBXLogger(logger.TBXLogger):
         step = result.get(TIMESTEPS_TOTAL) or result[TRAINING_ITERATION]
 
         tmp = result.copy()
-        for k in ["config", "pid", "timestamp", TIME_TOTAL_S, TRAINING_ITERATION]:
+        for k in ["config", "pid", "timestamp"]:
             if k in tmp:
                 del tmp[k]  # Not useful to log these
 
@@ -70,7 +70,7 @@ class TBXLogger(logger.TBXLogger):
                 try:
                     self._file_writer.add_histogram(full_attr, value, global_step=step)
                     # If TensorBoardX still does not think it is a
-                    # valid value (e.g. `[[]]`), warn and move on
+                    # valid value (e.g. [[]]), warn and move on
                 except (ValueError, TypeError):
                     if log_once("invalid_tbx_value"):
                         _LOGGER.warning(
@@ -86,7 +86,7 @@ class TBXLogger(logger.TBXLogger):
 # https://github.com/ray-project/ray/blob/7f1bacc7dc9caf6d0ec042e39499bbf1d9a7d065/python/ray/tune/logger.py#L599
 class TBXLoggerCallback(logger.TBXLoggerCallback):
     """Modified version of `ray.tune.logger.TBXLoggerCallback` that logs
-    values without prepending `ray/tune` to their tags.
+    values without prepending ``"ray/tune"`` to their tags.
 
     """
 
@@ -103,7 +103,7 @@ class TBXLoggerCallback(logger.TBXLoggerCallback):
         step = result.get(TIMESTEPS_TOTAL) or result[TRAINING_ITERATION]
 
         tmp = result.copy()
-        for k in ["config", "pid", "timestamp", TIME_TOTAL_S, TRAINING_ITERATION]:
+        for k in ["config", "pid", "timestamp"]:
             if k in tmp:
                 del tmp[k]  # Not useful to log these
 
@@ -133,7 +133,7 @@ class TBXLoggerCallback(logger.TBXLoggerCallback):
                 try:
                     self._file_writer.add_histogram(full_attr, value, global_step=step)
                     # If TensorBoardX still does not think it is a
-                    # valid value (e.g. `[[]]`), warn and move on
+                    # valid value (e.g. [[]]), warn and move on
                 except (ValueError, TypeError):
                     if log_once("invalid_tbx_value"):
                         _LOGGER.warning(

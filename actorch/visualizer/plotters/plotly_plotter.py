@@ -8,6 +8,7 @@ import os
 from argparse import ArgumentParser
 from typing import Any, Dict, Tuple
 
+import numpy as np
 import plotly
 import yaml
 from numpy import ndarray
@@ -26,8 +27,9 @@ class PlotlyPlotter(Plotter):
     """Plotter based on Plotly backend."""
 
     # override
+    @classmethod
     def _plot_traces(
-        self,
+        cls,
         traces: "Dict[str, Tuple[ndarray, ndarray, ndarray]]",
         x_name: "str",
         y_name: "str",
@@ -78,12 +80,14 @@ class PlotlyPlotter(Plotter):
                     x=x,
                     y=mean,
                     line={"color": color},
+                    marker={"color": color, "size": 4.0},
                     legendgroup=i,
-                    mode="lines",
+                    mode="lines+markers",
                     name=f"{trial_name}",
                 )
             )
             # Confidence interval
+            mask = np.isfinite(x) & np.isfinite(mean)
             color = color.replace("rgb", "rgba").replace(")", f", {opacity})")
             scatter_kwargs = {
                 "legendgroup": i,
@@ -95,15 +99,15 @@ class PlotlyPlotter(Plotter):
             }
             fig.add_trace(
                 go.Scatter(
-                    x=x,
-                    y=mean + shift,
+                    x=x[mask],
+                    y=(mean + shift)[mask],
                     **scatter_kwargs,
                 )
             )
             fig.add_trace(
                 go.Scatter(
-                    x=x,
-                    y=mean - shift,
+                    x=x[mask],
+                    y=(mean - shift)[mask],
                     fill="tonexty",
                     fillcolor=color,
                     **scatter_kwargs,

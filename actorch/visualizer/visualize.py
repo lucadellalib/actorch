@@ -21,17 +21,18 @@ __all__ = [
 class Visualize:
     """Visualize experiment progress."""
 
-    _LOADER_TYPES = {
+    _LOADERS = {
         "csv": CSVLoader,
         "tensorboard": TensorBoardLoader,
     }
 
-    _PLOTTER_TYPES = {
+    _PLOTTERS = {
         "matplotlib": MatplotlibPlotter,
         "plotly": PlotlyPlotter,
     }
 
-    def main(self, args: "Namespace") -> "None":
+    @classmethod
+    def main(cls, args: "Namespace") -> "None":
         """Script entry point.
 
         Parameters
@@ -43,17 +44,15 @@ class Visualize:
 
         """
         input_format = getattr(args, "input_format", None)
-        if input_format not in self._LOADER_TYPES:
+        if input_format not in cls._LOADERS:
             raise ValueError(
-                f"`input_format` ({input_format}) must be in {list(self._LOADER_TYPES)}"
+                f"`input_format` ({input_format}) must be in {list(cls._LOADERS)}"
             )
         backend = getattr(args, "backend", None)
-        if backend not in self._PLOTTER_TYPES:
-            raise ValueError(
-                f"`backend` ({backend}) must be in {list(self._PLOTTER_TYPES)}"
-            )
-        loader = self._LOADER_TYPES[input_format]()
-        plotter = self._PLOTTER_TYPES[backend]()
+        if backend not in cls._PLOTTERS:
+            raise ValueError(f"`backend` ({backend}) must be in {list(cls._PLOTTERS)}")
+        loader = cls._LOADERS[input_format]()
+        plotter = cls._PLOTTERS[backend]()
         del args.input_format, args.backend
         kwargs = vars(args)
         data = loader.load(**kwargs)
@@ -78,8 +77,8 @@ class Visualize:
         subparsers = parser.add_subparsers(
             title="backend", dest="backend", required=True
         )
-        for backend, plotter_cls in cls._PLOTTER_TYPES.items():
-            backend_parser = plotter_cls.get_default_parser()
+        for backend, plotter in cls._PLOTTERS.items():
+            backend_parser = plotter.get_default_parser()
             backend_help = backend_description = backend_parser.description
             if backend_help:
                 backend_help = f"{backend_help[0].lower()}{backend_help[1:]}"
@@ -91,8 +90,8 @@ class Visualize:
                     title="input format", dest="input_format", required=True
                 )
             )
-            for input_format, loader_cls in cls._LOADER_TYPES.items():
-                input_format_parser = loader_cls.get_default_parser()
+            for input_format, loader in cls._LOADERS.items():
+                input_format_parser = loader.get_default_parser()
                 input_format_help = (
                     input_format_description
                 ) = input_format_parser.description
@@ -113,17 +112,13 @@ class Visualize:
                 )
         return parser
 
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}()"
-
 
 def _main() -> "None":
     try:
         parser = Visualize.get_default_parser()
         args = parser.parse_args()
         print("------------------- Start ------------------")
-        visualize = Visualize()
-        visualize.main(args)
+        Visualize.main(args)
         print("------------------- Done -------------------")
     except KeyboardInterrupt:
         print("---- Exiting early (Keyboard Interrupt) ----")

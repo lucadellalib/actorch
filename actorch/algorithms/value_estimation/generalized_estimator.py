@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributions import AffineTransform, Distribution
 
+from actorch.algorithms.value_estimation.utils import distributional_gather
 from actorch.distributions import CatDistribution, SumTransform, TransformedDistribution
 
 
@@ -22,37 +23,32 @@ __all__ = [
 def generalized_estimator(
     state_values: "Union[Tensor, Distribution]",
     rewards: "Tensor",
-    dones: "Tensor",
-    mask: "Tensor",
+    terminals: "Tensor",
     trace_weights: "Tensor",
     delta_weights: "Tensor",
     advantage_weights: "Tensor",
     action_values: "Optional[Union[Tensor, Distribution]]" = None,
-    next_state_values: "Optional[Union[Tensor, Distribution]]" = None,
+    mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
     num_return_steps: "int" = 1,
     trace_decay: "float" = 1.0,
-    standardize_advantage: "bool" = False,
-    epsilon: "float" = 1e-6,
 ) -> "Tuple[Union[Tensor, Distribution], Tensor]":
-    """Compute the (distributional) generalized estimator targets and the corresponding
-    advantages of a trajectory.
+    """Compute the (possibly distributional) generalized estimator targets
+    and the corresponding advantages of a trajectory.
 
-    In the following, let `B` denote the batch size and `T` the trajectory maximum length.
+    In the following, let `B` denote the batch size and `T` the maximum
+    trajectory length.
 
     Parameters
     ----------
     state_values:
-        The (distributional) state values (`v_t` in the literature),
-        shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
+        The (possibly distributional) state values (`v_t` in the literature),
+        shape (or batch shape if distributional, assuming an empty event shape):
+        ``[B, T + 1]`` if a bootstrap value is given, ``[B, T]`` otherwise.
     rewards:
         The rewards (`r_t` in the literature), shape: ``[B, T]``.
-    dones:
-        The end-of-episode flags, shape: ``[B, T]``.
-    mask:
-        The boolean tensor indicating which elements (or batch elements
-        if distributional) are valid (True) and which are not (False),
-        shape: ``[B, T]``.
+    terminals:
+        The terminal flags, shape: ``[B, T]``.
     trace_weights:
         The trace weights (`c_t` or `traces` in the literature), shape: ``[B, T]``.
     delta_weights:
@@ -60,26 +56,23 @@ def generalized_estimator(
     advantage_weights:
         The advantage weights, shape: ``[B, T]``.
     action_values:
-        The (distributional) action values (`q_t` in the literature),
+        The (possibly distributional) action values (`q_t` in the literature),
         shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
-    next_state_values:
-        The (distributional) next state values (`v_t+1` in the literature),
-        shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
-        Default to `state_values` from the second timestep on, with a bootstrap value set to 0.
+    mask:
+        The boolean tensor indicating which elements (or batch elements
+        if distributional) are valid (True) and which are not (False),
+        shape: ``[B, T]``.
+        Default to ``torch.ones_like(rewards, dtype=torch.bool)``.
     discount:
         The discount factor (`gamma` in the literature).
     num_return_steps:
         The number of return steps (`n` in the literature).
     trace_decay:
         The trace-decay parameter (`lambda` in the literature).
-    standardize_advantage:
-        True to standardize the advantages, False otherwise.
-    epsilon:
-        The term added to the denominators to improve numerical stability.
 
     Returns
     -------
-        - The (distributional) generalized estimator targets,
+        - The (possibly distributional) generalized estimator targets,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
         - the corresponding advantages, ``[B, T]``.
 
@@ -89,49 +82,121 @@ def generalized_estimator(
         If an invalid argument value is given.
 
     """
-    if discount < 0.0 or discount > 1.0:
-        raise ValueError(f"`discount` ({discount}) must be in the interval [0, 1]")
+    if rewards.ndim != 2:
+        raise ValueError(
+            f"Number of dimensions of `rewards` ({rewards.ndim}) must be equal to 2"
+        )
+    B, T = rewards.shape
+    if B < 1:
+        raise ValueError(f"Batch size ({B}) must be in the integer interval [1, inf)")
+    if T < 1:
+        raise ValueError(
+            f"Maximum trajectory length ({T}) must be in the integer interval [1, inf)"
+        )
+    if terminals.shape != rewards.shape:
+        raise ValueError(
+            f"Shape of `terminals` ({terminals.shape}) must be "
+            f"equal to the shape of `rewards` ({rewards.shape})"
+        )
+    if trace_weights.shape != rewards.shape:
+        raise ValueError(
+            f"Shape of `trace_weights` ({trace_weights.shape}) must "
+            f"be equal to the shape of `rewards` ({rewards.shape})"
+        )
+    if delta_weights.shape != rewards.shape:
+        raise ValueError(
+            f"Shape of `delta_weights` ({delta_weights.shape}) must "
+            f"be equal to the shape of `rewards` ({rewards.shape})"
+        )
+    if advantage_weights.shape != rewards.shape:
+        raise ValueError(
+            f"Shape of `advantage_weights` ({advantage_weights.shape}) "
+            f"must be equal to the shape of `rewards` ({rewards.shape})"
+        )
+    if mask is None:
+        mask = torch.ones_like(rewards, dtype=torch.bool)
+    elif mask.shape != rewards.shape:
+        raise ValueError(
+            f"Shape of `mask` ({mask.shape}) must be equal "
+            f"to the shape of `rewards` ({rewards.shape})"
+        )
+    if discount <= 0.0 or discount > 1.0:
+        raise ValueError(f"`discount` ({discount}) must be in the interval (0, 1]")
     if num_return_steps < 1 or not float(num_return_steps).is_integer():
         raise ValueError(
-            f"`num_return_steps` ({num_return_steps}) must be in the integer interval [1, inf)"
+            f"`num_return_steps` ({num_return_steps}) "
+            f"must be in the integer interval [1, inf)"
         )
+    num_return_steps = int(num_return_steps)
     if trace_decay < 0.0 or trace_decay > 1.0:
         raise ValueError(
             f"`trace_decay` ({trace_decay}) must be in the interval [0, 1]"
         )
-    if epsilon < 0.0:
-        raise ValueError(f"`epsilon` ({epsilon}) must be in the interval [0, inf)")
-    is_distributional = isinstance(state_values, Distribution)
-    targets = (
-        _compute_distributional_targets if is_distributional else _compute_targets
-    )(
+    compute_targets_args = [
         state_values,
         rewards,
-        dones,
-        mask,
+        terminals,
         trace_weights,
         delta_weights,
         action_values,
-        next_state_values,
+        mask,
         discount,
         num_return_steps,
-    )
+    ]
+    if isinstance(state_values, Distribution):
+        if state_values.batch_shape != (B, T) and state_values.batch_shape != (
+            B,
+            T + 1,
+        ):
+            raise ValueError(
+                f"Batch shape of `state_values` ({state_values.batch_shape}) "
+                f"must be equal to the shape of `rewards` ({torch.Size([B, T])}) "
+                f"or to the shape of `rewards` with a size along the time "
+                f"dimension increased by 1 ({torch.Size([B, T + 1])})"
+            )
+        if action_values is not None and action_values.batch_shape != rewards.shape:
+            raise ValueError(
+                f"Batch shape of `action_values` ({action_values.batch_shape}) "
+                f"must be equal to the shape of `rewards` ({rewards.shape})"
+            )
+        targets, state_values, next_state_values = _compute_distributional_targets(
+            *compute_targets_args
+        )
+        advantages = _compute_advantages(
+            targets.mean,
+            state_values.mean,
+            rewards,
+            advantage_weights,
+            action_values.mean if action_values is not None else None,
+            next_state_values.mean,
+            mask,
+            discount,
+            trace_decay,
+        )
+        return targets, advantages
+    if state_values.shape != (B, T) and state_values.shape != (B, T + 1):
+        raise ValueError(
+            f"Shape of `state_values` ({state_values.shape}) must be "
+            f"equal to the shape of `rewards` ({torch.Size([B, T])}) "
+            f"or to the shape of `rewards` with a size along the time "
+            f"dimension increased by 1 ({torch.Size([B, T + 1])})"
+        )
+    if action_values is not None and action_values.shape != rewards.shape:
+        raise ValueError(
+            f"Shape of `action_values` ({action_values.shape}) must "
+            f"be equal to the shape of `rewards` ({rewards.shape})"
+        )
+    targets, state_values, next_state_values = _compute_targets(*compute_targets_args)
     advantages = _compute_advantages(
-        targets.mean if is_distributional else targets,
-        state_values.mean if is_distributional else state_values,
+        targets,
+        state_values,
         rewards,
-        mask,
         advantage_weights,
-        action_values.mean
-        if (is_distributional and action_values is not None)
-        else action_values,
-        next_state_values.mean
-        if (is_distributional and next_state_values is not None)
-        else next_state_values,
+        action_values,
+        next_state_values,
+        mask,
         discount,
         trace_decay,
-        standardize_advantage,
-        epsilon,
     )
     return targets, advantages
 
@@ -139,40 +204,43 @@ def generalized_estimator(
 def _compute_targets(
     state_values: "Tensor",
     rewards: "Tensor",
-    dones: "Tensor",
-    mask: "Tensor",
+    terminals: "Tensor",
     trace_weights: "Tensor",
     delta_weights: "Tensor",
-    action_values: "Optional[Tensor]" = None,
-    next_state_values: "Optional[Tensor]" = None,
-    discount: "float" = 0.99,
-    num_return_steps: "int" = 1,
-) -> "Tensor":
+    action_values: "Optional[Tensor]",
+    mask: "Tensor",
+    discount: "float",
+    num_return_steps: "int",
+) -> "Tuple[Tensor, Tensor, Tensor]":
     # x[~mask] = 0.0 is equivalent to x *= mask
     # x[~mask] = 1.0 is equivalent to x *= mask, x += ~mask
-    state_values, rewards, dones = state_values.clone(), rewards.clone(), dones.clone()
+    state_values, rewards, terminals = (
+        state_values.clone(),
+        rewards.clone(),
+        terminals.clone(),
+    )
     trace_weights, delta_weights = trace_weights.clone(), delta_weights.clone()
-    dones, mask = dones.bool(), mask.bool()
-    state_values *= mask
+    terminals, mask = terminals.bool(), mask.bool()
     rewards *= mask
     if action_values is not None:
         action_values = action_values.clone()
         action_values *= mask
-    dones += ~mask
+    terminals += ~mask
     trace_weights *= mask
     trace_weights += ~mask
     delta_weights *= mask
     delta_weights += ~mask
-    B, T = state_values.shape
+    B, T = rewards.shape
     num_return_steps = min(num_return_steps, T)
-    if next_state_values is None:
-        length = mask.sum(dim=1)
-        next_state_values = F.pad(state_values, [0, 1])[:, 1:]
-        next_state_values[torch.arange(B), length - 1] = 0.0
+    if state_values.shape == (B, T + 1):
+        next_state_values = state_values[:, 1:].clone()
+        state_values = state_values[:, :-1]
+        state_values *= mask
     else:
-        next_state_values = next_state_values.clone()
+        state_values *= mask
+        next_state_values = F.pad(state_values, [0, 1])[:, 1:]
     next_state_values *= mask
-    next_state_values *= ~dones
+    next_state_values *= ~terminals
     state_or_action_values = (
         action_values if action_values is not None else state_values
     )
@@ -200,39 +268,55 @@ def _compute_targets(
     )
     targets = state_or_action_values + errors
     targets *= mask
-    return targets
+    return targets, state_values, next_state_values
 
 
 def _compute_distributional_targets(
     state_values: "Distribution",
     rewards: "Tensor",
-    dones: "Tensor",
-    mask: "Tensor",
+    terminals: "Tensor",
     trace_weights: "Tensor",
     delta_weights: "Tensor",
-    action_values: "Optional[Distribution]" = None,
-    next_state_values: "Optional[Distribution]" = None,
-    discount: "float" = 0.99,
-    num_return_steps: "int" = 1,
-) -> "Distribution":
+    action_values: "Optional[Distribution]",
+    mask: "Tensor",
+    discount: "float",
+    num_return_steps: "int",
+) -> "Tuple[Distribution, Distribution, Distribution]":
     # x[~mask] = 0.0 is equivalent to x *= mask
     # x[~mask] = 1.0 is equivalent to x *= mask, x += ~mask
-    rewards, dones = rewards.clone(), dones.clone()
+    rewards, terminals = rewards.clone(), terminals.clone()
     trace_weights, delta_weights = trace_weights.clone(), delta_weights.clone()
-    dones, mask = dones.bool(), mask.bool()
+    terminals, mask = terminals.bool(), mask.bool()
     rewards *= mask
-    dones += ~mask
+    terminals += ~mask
     trace_weights *= mask
     trace_weights += ~mask
     delta_weights *= mask
     delta_weights += ~mask
-    B, T = state_values.batch_shape
+    B, T = rewards.shape
     num_return_steps = min(num_return_steps, T)
-    if next_state_values is None:
-        idx = torch.arange(1, T + 1).expand(B, T)
-        idx = idx.clamp(max=mask.sum(dim=1, keepdim=True) - 1)
-        next_state_values = _distributional_gather(
-            state_values, 1, idx, F.pad(mask, [0, 1])[:, 1:]
+    length = mask.sum(dim=1, keepdim=True)
+    idx = torch.arange(1, T + 1).expand(B, T)
+    if state_values.batch_shape == (B, T + 1):
+        next_state_values = distributional_gather(
+            state_values,
+            1,
+            idx.clamp(max=length),
+            mask * (~terminals),
+        )
+        idx = torch.arange(0, T).expand(B, T)
+        state_values = distributional_gather(
+            state_values,
+            1,
+            idx.clamp(max=(length - 1).clamp(min=0)),
+            mask,
+        )
+    else:
+        next_state_values = distributional_gather(
+            state_values,
+            1,
+            idx.clamp(max=(length - 1).clamp(min=0)),
+            F.pad(mask, [0, 1])[:, 1:] * (~terminals),
         )
     state_or_action_values = (
         action_values if action_values is not None else state_values
@@ -248,7 +332,7 @@ def _compute_distributional_targets(
         window[..., 0] = 1.0
         window = window.cumprod(dim=-1)
         offsets = delta_weights * rewards
-        next_state_value_coeffs = mask.float()
+        next_state_value_coeffs = mask.type_as(rewards)
         offsets = F.pad(offsets[None], [0, num_return_steps - 1])
         next_state_value_coeffs = F.pad(
             next_state_value_coeffs[None], [0, num_return_steps - 1]
@@ -262,24 +346,27 @@ def _compute_distributional_targets(
                 groups=B,
             )[0]
         )
-        next_state_value_coeffs *= ~dones
+        next_state_value_coeffs *= ~terminals
         next_state_value_coeffs *= mask
         # Gather
         idx = torch.arange(num_return_steps - 1, T + num_return_steps - 1).expand(B, T)
-        idx = idx.clamp(max=mask.sum(dim=1, keepdim=True) - 1)
-        next_state_values = _distributional_gather(next_state_values, 1, idx)
+        next_state_values = distributional_gather(
+            next_state_values,
+            1,
+            idx.clamp(max=(length - 1).clamp(min=0)),
+        )
         # Transform
         targets = TransformedDistribution(
             next_state_values,
             AffineTransform(offsets, next_state_value_coeffs),
-            validate_args=False,
+            next_state_values._validate_args,
         ).reduced_dist
-        return targets
+        return targets, state_values, next_state_values
     coeffs = torch.stack(
         [
             delta_weights * rewards,  # Offsets
-            -delta_weights,  # `state_or_action_values` coefficients
-            discount * delta_weights,  # `next_state_values` coefficients
+            -delta_weights,  # state_or_action_values coefficients
+            discount * delta_weights,  # next_state_values coefficients
         ]
     )
     coeffs = F.pad(coeffs, [0, num_return_steps - 1])
@@ -289,13 +376,13 @@ def _compute_distributional_targets(
     mask[:, T - 1 :] = mask[:, T - 1 : T]
     coeffs = F.unfold(coeffs[..., None], (T, 1)).reshape(3, B, T, -1)
     window = F.unfold(window[:, None, :, None], (T, 1))
-    mask = F.unfold(mask[:, None, :, None].float(), (T, 1)).bool()
+    mask = F.unfold(mask[:, None, :, None].type_as(rewards), (T, 1)).bool()
     window = window.roll(1, dims=-1)
     window[..., 0] = 1
     window = window.cumprod(dim=-1)
     coeffs *= window
     coeffs[1, :, :, 0] += 1
-    coeffs[2, ...] *= ~dones[..., None]
+    coeffs[2, ...] *= ~terminals[..., None]
     coeffs *= mask
     state_or_action_values = _distributional_unfoldNd(
         state_or_action_values, (B, T, num_return_steps)
@@ -304,10 +391,14 @@ def _compute_distributional_targets(
         next_state_values, (B, T, num_return_steps)
     )
     # Transform
+    validate_args = (
+        state_or_action_values._validate_args or next_state_values._validate_args
+    )
     targets = TransformedDistribution(
         CatDistribution(
             [state_or_action_values, next_state_values],
             dim=-1,
+            validate_args=validate_args,
         ),
         [
             AffineTransform(
@@ -317,23 +408,21 @@ def _compute_distributional_targets(
             SumTransform((2,)),
             SumTransform((num_return_steps,)),
         ],
-        validate_args=False,
+        validate_args=validate_args,
     ).reduced_dist
-    return targets
+    return targets, state_values, next_state_values
 
 
 def _compute_advantages(
     targets: "Tensor",
     state_values: "Tensor",
     rewards: "Tensor",
-    mask: "Tensor",
     advantage_weights: "Tensor",
-    action_values: "Optional[Tensor]" = None,
-    next_state_values: "Optional[Tensor]" = None,
-    discount: "float" = 0.99,
-    trace_decay: "float" = 1.0,
-    standardize_advantage: "bool" = False,
-    epsilon: "float" = 1e-6,
+    action_values: "Optional[Tensor]",
+    next_state_values: "Tensor",
+    mask: "Tensor",
+    discount: "float",
+    trace_decay: "float",
 ) -> "Tensor":
     # x[~mask] = 0.0 is equivalent to x *= mask
     # x[~mask] = 1.0 is equivalent to x *= mask, x += ~mask
@@ -349,74 +438,33 @@ def _compute_advantages(
     rewards *= mask
     advantage_weights *= mask
     advantage_weights += ~mask
-    B, T = state_values.shape
-    length = None
+    B, T = rewards.shape
     if action_values is not None:
         # Replace action values with current action values estimate (Retrace-like)
         action_values = targets
     else:
         # Compute action values from current state values estimate (V-trace-like)
         length = mask.sum(dim=1)
+        next_state_values *= mask
         next_targets = F.pad(
             trace_decay * targets + (1 - trace_decay) * state_values,
             [0, 1],
         )[:, 1:]
-        if next_state_values is None:
-            next_state_values = F.pad(state_values, [0, 1])[:, 1:]
-            next_state_values[torch.arange(B), length - 1] = 0.0
-        else:
-            next_state_values = next_state_values.clone()
-        next_state_values *= mask
         next_targets[torch.arange(B), length - 1] = next_state_values[
             torch.arange(B), length - 1
         ]
         action_values = rewards + discount * next_targets
     advantages = advantage_weights * (action_values - state_values)
     advantages *= mask
-    if standardize_advantage:
-        if length is None:
-            length = mask.sum(dim=1)
-        advantages_mean = (advantages.sum(dim=1) / length)[:, None]
-        advantages -= advantages_mean
-        advantages *= mask
-        advantages_stddev = (
-            ((advantages**2).sum(dim=1) / length).sqrt().clamp(min=epsilon)[:, None]
-        )
-        advantages /= advantages_stddev
-        advantages *= mask
     return advantages
-
-
-def _distributional_gather(
-    distribution: "Distribution",
-    dim: "int",
-    index: "Tensor",
-    mask: "Optional[Tensor]" = None,
-) -> "Distribution":
-    def expand(input: "Tensor", *args: "Any", **kwargs: "Any") -> "Tensor":
-        expanded_index = index[(...,) + (None,) * (input.ndim - index.ndim)].expand_as(
-            input
-        )
-        result = input.gather(dim, expanded_index)
-        if mask is not None:
-            expanded_mask = mask[(...,) + (None,) * (input.ndim - mask.ndim)].expand_as(
-                input
-            )
-            result *= expanded_mask
-        return result
-
-    expand_backup = torch.Tensor.expand
-    torch.Tensor.expand = expand
-    try:
-        return distribution.expand(index.shape)
-    finally:
-        torch.Tensor.expand = expand_backup
 
 
 def _distributional_unfoldNd(
     distribution: "Distribution",
     target_shape: "Tuple[int, ...]",
 ) -> "Distribution":
+    expand_backup = torch.Tensor.expand
+
     def expand(input: "Tensor", *args: "Any", **kwargs: "Any") -> "Tensor":
         B, T, N = target_shape[0:3]
         is_bool_input = input.dtype == torch.bool
@@ -434,7 +482,6 @@ def _distributional_unfoldNd(
             result = result.bool()
         return result
 
-    expand_backup = torch.Tensor.expand
     torch.Tensor.expand = expand
     try:
         return distribution.expand(torch.Size(target_shape))

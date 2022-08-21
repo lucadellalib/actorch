@@ -30,6 +30,10 @@ class RankBasedBuffer(ProportionalBuffer):
 
     """
 
+    _STATE_VARS = ProportionalBuffer._STATE_VARS  # override
+    _STATE_VARS.remove("epsilon")
+
+    # override
     def __init__(
         self,
         capacity: "Union[int, float]",
@@ -51,13 +55,13 @@ class RankBasedBuffer(ProportionalBuffer):
             - "shape": the event shape of the value to store. Default to ``()``;
             - "dtype": the dtype of the value to store. Default to ``np.float32``.
         prioritization:
-            The prioritization schedule (`alpha` in the literature;
-            0: no prioritization, 1: full prioritization).
-            If a number, it is wrapped in a `ConstantSchedule`.
+            The schedule for the prioritization coefficient (`alpha` in the
+            literature; 0: no prioritization, 1: full prioritization).
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
         bias_correction:
-            The bias correction schedule (`beta` in the literature;
-            0: no correction, 1: full correction).
-            If a number, it is wrapped in a `ConstantSchedule`.
+            The schedule for the bias correction coefficient (`beta` in the
+            literature; 0: no correction, 1: full correction).
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
 
         """
         super().__init__(capacity, spec, prioritization, bias_correction)
@@ -102,10 +106,12 @@ class RankBasedBuffer(ProportionalBuffer):
             self._cache["full_trajectory_priority"] = full_trajectory_priority
         return full_trajectory_priority
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(capacity: {self.capacity}, "
+            f"spec: {self.spec}, "
             f"prioritization: {self.prioritization}, "
             f"bias_correction: {self.bias_correction}, "
             f"num_experiences: {self.num_experiences}, "

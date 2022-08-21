@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 from gym import Env
+from gym.utils import seeding
 from numpy import ndarray
 
 from actorch.envs.batched_env import BatchedEnv
@@ -23,19 +24,24 @@ __all__ = [
 class SerialBatchedEnv(BatchedEnv):
     """Batched environment based on loops."""
 
+    # override
     def __init__(
         self,
-        env_builder: "Callable[..., Env]",
-        env_config: "Optional[Dict[str, Any]]" = None,
+        base_env_builder: "Callable[..., Env]",
+        base_env_config: "Optional[Dict[str, Any]]" = None,
         num_workers: "int" = 1,
     ) -> "None":
-        super().__init__(env_builder, env_config, num_workers)
+        super().__init__(base_env_builder, base_env_config, num_workers)
         dummy_flat_observation = flatten(
             self.single_observation_space,
             self.single_observation_space.sample(),
             copy=False,
         )
-        self._envs = [self.env_builder() for _ in range(num_workers)]
+        self._envs = []
+        for _ in range(num_workers):
+            env = self.base_env_builder(**self.base_env_config, new_step_api=True)
+            env.new_step_api = True
+            self._envs.append(env)
         self._observation_buffer = [
             unflatten(
                 self.single_observation_space,
@@ -45,44 +51,45 @@ class SerialBatchedEnv(BatchedEnv):
             for _ in range(num_workers)
         ]
         self._reward = np.zeros(num_workers)
-        self._done = np.zeros(num_workers, dtype=bool)
+        self._terminal = np.zeros(num_workers, dtype=bool)
+        self._truncated = np.zeros(num_workers, dtype=bool)
         self._info = np.array([{} for _ in range(num_workers)])
 
     # override
-    def _reset(self, idx: "Sequence[int]") -> "Nested[ndarray]":
+    def _reset(self, idx: "Sequence[int]") -> "Tuple[Nested[ndarray], ndarray]":
         for i in idx:
-            self._observation_buffer[i] = self._envs[i].reset()
+            self._observation_buffer[i], self._info[i] = self._envs[i].reset(
+                return_info=True
+            )
         observation = batch(self.observation_space, self._observation_buffer)  # Copy
-        return observation
+        return observation, deepcopy(self._info)
 
     # override
     def _step(
         self, action: "Sequence[Nested]", idx: "Sequence[int]"
-    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray]":
+    ) -> "Tuple[Nested[ndarray], ndarray, ndarray, ndarray, ndarray]":
         for i in idx:
             (
                 self._observation_buffer[i],
                 self._reward[i],
-                self._done[i],
+                self._terminal[i],
+                self._truncated[i],
                 self._info[i],
             ) = self._envs[i].step(action[i])
         observation = batch(self.observation_space, self._observation_buffer)  # Copy
         return (
             observation,
             np.array(self._reward),  # Copy
-            np.array(self._done),  # Copy
+            np.array(self._terminal),  # Copy
+            np.array(self._truncated),  # Copy
             deepcopy(self._info),
         )
 
     # override
     def _seed(self, seed: "Sequence[Optional[int]]") -> "None":
         for i, env in enumerate(self._envs):
-            env.seed(seed[i])
-
-    # override
-    def _render(self, idx: "Sequence[int]", **kwargs: "Any") -> "None":
-        for i in idx:
-            self._envs[i].render(**kwargs)
+            # Bypass deprecation warning
+            env.np_random, _ = seeding.np_random(seed[i])
 
     # override
     def _close(self) -> "None":

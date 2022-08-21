@@ -17,5 +17,11 @@ from actorch.optimizers import *
 from actorch.runner import *
 from actorch.samplers import *
 from actorch.schedules import *
+from actorch.utils import FutureRef
 from actorch.version import VERSION as __version__
-from actorch.visualizer import *
+
+
+try:
+    from actorch.visualizer import *
+except ImportError:
+    pass

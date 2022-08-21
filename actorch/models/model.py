@@ -30,6 +30,7 @@ class Model(ABC, nn.Module):
 
     """
 
+    # override
     def __init__(
         self,
         in_shapes: "Dict[str, Tuple[int, ...]]",
@@ -48,8 +49,8 @@ class Model(ABC, nn.Module):
 
         """
         super().__init__()
-        self.in_shapes = {k: torch.Size(s) for k, s in in_shapes.items()}
-        self.out_shapes = {k: torch.Size(s) for k, s in out_shapes.items()}
+        self.in_shapes = {k: torch.Size(v) for k, v in in_shapes.items()}
+        self.out_shapes = {k: torch.Size(v) for k, v in out_shapes.items()}
         self._setup()
 
     # override
@@ -61,7 +62,7 @@ class Model(ABC, nn.Module):
     ) -> "Tuple[Dict[str, Tensor], Dict[str, Tensor]]":
         """Forward pass.
 
-        In the following, let `B = [B_1, ..., B_k]` denote the batch shape.
+        In the following, let `B = {B_1, ..., B_k}` denote the batch shape.
 
         Parameters
         ----------

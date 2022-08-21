@@ -4,7 +4,7 @@
 
 """Monte Carlo return."""
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -19,29 +19,26 @@ __all__ = [
 
 def monte_carlo_return(
     rewards: "Tensor",
-    mask: "Tensor",
+    mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
-    standardize_advantage: "bool" = False,
-    epsilon: "float" = 1e-6,
 ) -> "Tuple[Tensor, Tensor]":
-    """Compute the Monte Carlo returns and the corresponding advantages of a trajectory.
+    """Compute the Monte Carlo returns and the corresponding advantages of
+    a trajectory.
 
-    In the following, let `B` denote the batch size and `T` the trajectory maximum length.
+    In the following, let `B` denote the batch size and `T` the maximum
+    trajectory length.
 
     Parameters
     ----------
     rewards:
         The rewards (`r_t` in the literature), shape: ``[B, T]``.
     mask:
-        The boolean tensor indicating which elements
-        are valid (True) and which are not (False),
+        The boolean tensor indicating which elements (or batch elements
+        if distributional) are valid (True) and which are not (False),
         shape: ``[B, T]``.
+        Default to ``torch.ones_like(rewards, dtype=torch.bool)``.
     discount:
         The discount factor (`gamma` in the literature).
-    standardize_advantage:
-        True to standardize the advantages, False otherwise.
-    epsilon:
-        The term added to the denominators to improve numerical stability.
 
     Returns
     -------
@@ -56,12 +53,10 @@ def monte_carlo_return(
 
     """
     return n_step_return(
-        state_values=torch.zeros_like(mask),
+        state_values=torch.zeros_like(rewards),
         rewards=rewards,
-        dones=torch.zeros_like(mask),
+        terminals=torch.zeros_like(rewards),
         mask=mask,
         discount=discount,
-        num_return_steps=mask.shape[1],
-        standardize_advantage=standardize_advantage,
-        epsilon=epsilon,
+        num_return_steps=rewards.shape[1],
     )

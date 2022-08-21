@@ -21,15 +21,16 @@ __all__ = [
 class FCNet(Hydra):
     """Fully connected neural network model."""
 
+    # override
     def __init__(
         self,
         in_shapes: "Dict[str, Tuple[int, ...]]",
         out_shapes: "Dict[str, Tuple[int, ...]]",
         torso_fc_configs: "Optional[Sequence[Dict[str, Any]]]" = None,
-        torso_activation_builder: "Callable[..., nn.Module]" = nn.ReLU,
+        torso_activation_builder: "Optional[Callable[..., nn.Module]]" = None,
         torso_activation_config: "Optional[Dict[str, Any]]" = None,
         head_fc_bias: "bool" = True,
-        head_activation_builder: "Callable[..., nn.Module]" = nn.Identity,
+        head_activation_builder: "Optional[Callable[..., nn.Module]]" = None,
         head_activation_config: "Optional[Dict[str, Any]]" = None,
         independent_heads: "Optional[Sequence[str]]" = None,
     ) -> "None":
@@ -48,17 +49,19 @@ class FCNet(Hydra):
             Argument `in_features` is set internally.
             Default to ``[
                 {"out_features": 64, "bias": True},
-                {"out_features": 64, "bias": True},
+                {"out_features": 32, "bias": True},
             ]``.
         torso_activation_builder:
             The torso activation builder (the same for all
             torso fully connected layers), i.e. a callable that
             receives keyword arguments from a configuration
             and returns an activation.
+            Default to ``nn.ReLU``.
         torso_activation_config:
             The torso activation configuration
             (the same for all torso fully connected layers).
-            Default to ``{}``.
+            Default to ``{"inplace": False}`` if
+            `torso_activation_builder` is None, ``{}`` otherwise.
         head_fc_bias:
             True to learn an additive bias in the head
             fully connected layer, False otherwise
@@ -68,6 +71,7 @@ class FCNet(Hydra):
             input-dependent heads), i.e. a callable that
             receives keyword arguments from a configuration
             and returns an activation.
+            Default to ``nn.Identity``.
         head_activation_config:
             The head activation configuration
             (the same for all input-dependent heads).
@@ -78,17 +82,32 @@ class FCNet(Hydra):
             optimized during training.
             Default to ``[]``.
 
+        Raises
+        ------
+        ValueError
+            If `independent_heads` is not a subset of
+            ``out_shapes.keys()``.
+
         """
         self.torso_fc_configs = torso_fc_configs or [
             {"out_features": 64, "bias": True},
-            {"out_features": 64, "bias": True},
+            {"out_features": 32, "bias": True},
         ]
-        self.torso_activation_builder = torso_activation_builder
-        self.torso_activation_config = torso_activation_config or {}
+        self.torso_activation_builder = torso_activation_builder or nn.ReLU
+        self.torso_activation_config = (
+            torso_activation_config
+            if torso_activation_config is not None
+            else ({"inplace": False} if torso_activation_builder is None else {})
+        )
         self.head_fc_bias = head_fc_bias
-        self.head_activation_builder = head_activation_builder
+        self.head_activation_builder = head_activation_builder or nn.Identity
         self.head_activation_config = head_activation_config or {}
         self.independent_heads = independent_heads or []
+        if any(v not in out_shapes for v in self.independent_heads):
+            raise ValueError(
+                f"`independent_heads` ({self.independent_heads}) must be "
+                f"a subset of `out_shapes.keys()` ({list(out_shapes)})"
+            )
         super().__init__(in_shapes, out_shapes)
 
     # override
@@ -110,16 +129,16 @@ class FCNet(Hydra):
         for name, out_shape in self.out_shapes.items():
             if name in self.independent_heads:
                 heads[name] = ParameterModule(in_shape, out_shape)
-            else:
-                head = [
-                    nn.Linear(
-                        in_shape.numel(),
-                        out_shape.numel(),
-                        self.head_fc_bias,
-                    ),
-                    self.head_activation_builder(**self.head_activation_config),
-                ]
-                heads[name] = nn.Sequential(*head)
+                continue
+            head = [
+                nn.Linear(
+                    in_shape.numel(),
+                    out_shape.numel(),
+                    self.head_fc_bias,
+                ),
+                self.head_activation_builder(**self.head_activation_config),
+            ]
+            heads[name] = nn.Sequential(*head)
         self.heads = nn.ModuleDict(heads)
 
     # override
@@ -132,7 +151,11 @@ class FCNet(Hydra):
         input = input[mask].flatten(start_dim=1)
         masked_output = self.torso(input)
         out_shape = masked_output.shape[1:]
-        output = torch.zeros(mask.shape + out_shape, device=masked_output.device)
+        output = torch.zeros(
+            mask.shape + out_shape,
+            dtype=masked_output.dtype,
+            device=masked_output.device,
+        )
         output[mask] = masked_output
         return output, states
 
@@ -144,11 +167,15 @@ class FCNet(Hydra):
         mask: "Tensor",
     ) -> "Tuple[Dict[str, Tensor], Dict[str, Tensor]]":
         outputs = {}
+        masked_input = input[mask].flatten(start_dim=1)
         for name, out_shape in self.out_shapes.items():
-            masked_input = input[mask].flatten(start_dim=1)
             masked_output = self.heads[name](masked_input)
             masked_output = masked_output.reshape(-1, *out_shape)
-            output = torch.zeros(mask.shape + out_shape, device=masked_output.device)
+            output = torch.zeros(
+                mask.shape + out_shape,
+                dtype=masked_output.dtype,
+                device=masked_output.device,
+            )
             output[mask] = masked_output
             outputs[name] = output
         return outputs, states

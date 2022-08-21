@@ -1,0 +1,56 @@
+# ==============================================================================
+# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# ==============================================================================
+
+"""Train distributed data parallel REINFORCE on CartPole-v1."""
+
+# Navigate to `<path-to-repository>`, open a terminal and run:
+# cd examples
+# actorch run DistributedDataParallelREINFORCE_CartPole-v1.py
+
+import gym
+from torch.optim import Adam
+
+from actorch import *
+
+
+experiment_params = ExperimentParams(
+    run_or_experiment=DistributedDataParallelREINFORCE,
+    stop={"training_iteration": 30},
+    checkpoint_freq=10,
+    checkpoint_at_end=True,
+    log_to_file=True,
+    export_formats=["checkpoint", "model"],
+    config=DistributedDataParallelREINFORCE.Config(
+        # Distributed execution configuration
+        num_workers=2,
+        num_cpus_per_worker=1,
+        num_gpus_per_worker=0,
+        # REINFORCE configuration
+        train_env_builder=lambda **config: ParallelBatchedEnv(
+            lambda **config: gym.make("CartPole-v1", **config),
+            config,
+            num_workers=2,
+        ),
+        train_num_episodes=10,
+        eval_interval_iterations=10,
+        eval_env_config={"render_mode": None},
+        eval_num_episodes=10,
+        policy_network_model_builder=FCNet,
+        policy_network_model_config={
+            "torso_fc_configs": [
+                {"out_features": 64, "bias": True}
+            ],
+        },
+        policy_network_optimizer_builder=Adam,
+        policy_network_optimizer_config={"lr": 1e-1},
+        discount=0.99,
+        entropy_coeff=0.001,
+        max_grad_l2_norm=0.5,
+        seed=0,
+        enable_amp=False,
+        enable_reproducibility=True,
+        log_sys_usage=True,
+        suppress_warnings=False,
+    ),
+)

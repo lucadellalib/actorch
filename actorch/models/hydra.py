@@ -104,7 +104,7 @@ class Hydra(Model):
     ) -> "Tuple[Tensor, Dict[str, Tensor]]":
         """Tails forward pass.
 
-        In the following, let `B = [B_1, ..., B_k]` denote the batch shape,
+        In the following, let `B = {B_1, ..., B_k}` denote the batch shape,
         and `...` an arbitrary event shape.
 
         Parameters
@@ -140,7 +140,7 @@ class Hydra(Model):
     ) -> "Tuple[Tensor, Dict[str, Tensor]]":
         """Torso forward pass.
 
-        In the following, let `B = [B_1, ..., B_k]` denote the batch shape,
+        In the following, let `B = {B_1, ..., B_k}` denote the batch shape,
         and `...` an arbitrary event shape.
 
         Parameters
@@ -175,7 +175,7 @@ class Hydra(Model):
     ) -> "Tuple[Dict[str, Tensor], Dict[str, Tensor]]":
         """Heads forward pass.
 
-        In the following, let `B = [B_1, ..., B_k]` denote the batch shape,
+        In the following, let `B = {B_1, ..., B_k}` denote the batch shape,
         and `...` an arbitrary event shape.
 
         Parameters

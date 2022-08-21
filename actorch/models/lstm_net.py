@@ -20,13 +20,14 @@ __all__ = [
 class LSTMNet(FCNet):
     """Long short-term memory neural network model."""
 
+    # override
     def __init__(
         self,
         in_shapes: "Dict[str, Tuple[int, ...]]",
         out_shapes: "Dict[str, Tuple[int, ...]]",
         torso_lstm_config: "Optional[Dict[str, Any]]" = None,
         head_fc_bias: "bool" = True,
-        head_activation_builder: "Callable[..., nn.Module]" = nn.Identity,
+        head_activation_builder: "Optional[Callable[..., nn.Module]]" = None,
         head_activation_config: "Optional[Dict[str, Any]]" = None,
         independent_heads: "Optional[Sequence[str]]" = None,
     ) -> "None":
@@ -61,6 +62,7 @@ class LSTMNet(FCNet):
             input-dependent heads), i.e. a callable that
             receives keyword arguments from a configuration
             and returns an activation.
+            Default to ``nn.Identity``.
         head_activation_config:
             The head activation configuration
             (the same for all input-dependent heads).
@@ -81,11 +83,17 @@ class LSTMNet(FCNet):
             "bidirectional": False,
             "proj_size": 0,
         }
-        self.head_fc_bias = head_fc_bias
-        self.head_activation_builder = head_activation_builder
-        self.head_activation_config = head_activation_config or {}
-        self.independent_heads = independent_heads or []
-        super(FCNet, self).__init__(in_shapes, out_shapes)
+        super().__init__(
+            in_shapes,
+            out_shapes,
+            head_fc_bias=head_fc_bias,
+            head_activation_builder=head_activation_builder,
+            head_activation_config=head_activation_config,
+            independent_heads=independent_heads,
+        )
+        del self.torso_fc_configs
+        del self.torso_activation_builder
+        del self.torso_activation_config
 
     # override
     def _setup_torso(self, in_shape: "Size") -> "None":
@@ -102,7 +110,8 @@ class LSTMNet(FCNet):
         batch_first = self.torso_lstm_config["batch_first"]
         input = input.flatten(start_dim=mask.ndim)
         if mask.ndim < 2:
-            mask = mask[..., None] if batch_first else mask[None]
+            # Add batch and/or time dimension
+            mask = mask[(None,) * (2 - mask.ndim)]
         mask = (
             mask.reshape(-1, mask.shape[-1])
             if batch_first
@@ -133,7 +142,7 @@ class LSTMNet(FCNet):
         output = output.reshape(*batch_shape, -1)
         states["hidden_state"], states["cell_state"] = tuple(
             x.movedim(0, -2).reshape(
-                *(batch_shape[:-1] if batch_first else batch_shape[1:]),
+                mask.shape[0 if batch_first else 1],
                 x.shape[0],
                 x.shape[-1],
             )
@@ -156,9 +165,9 @@ class LSTMNet(FCNet):
         missing_batch_ndims = 2 - len(batch_shape)
         if missing_batch_ndims > 0:
             batch_shape = (
-                (1,) * missing_batch_ndims + batch_shape
+                batch_shape + (1,) * missing_batch_ndims
                 if batch_first
-                else batch_shape + (1,) * missing_batch_ndims
+                else (1,) * missing_batch_ndims + batch_shape
             )
         state_batch_shape = batch_shape[:-1] if batch_first else batch_shape[1:]
         example_inputs[1]["hidden_state"] = torch.rand(

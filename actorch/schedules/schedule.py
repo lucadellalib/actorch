@@ -5,10 +5,12 @@
 """Schedule."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
 
 import numpy as np
 from numpy import ndarray
+
+from actorch.utils import CheckpointableMixin
 
 
 __all__ = [
@@ -16,13 +18,15 @@ __all__ = [
 ]
 
 
-class Schedule(ABC):
+class Schedule(ABC, CheckpointableMixin):
     """Time-dependent scheduling schema.
 
     Useful, for example, to anneal `epsilon` and `beta` parameters in
     epsilon-greedy exploration and prioritized experience replay, respectively.
 
     """
+
+    _STATE_VARS = ["batch_size"]  # override
 
     def __init__(
         self,
@@ -122,40 +126,16 @@ class Schedule(ABC):
                 )
         return self._step(mask)
 
-    def state_dict(self) -> "Dict[str, Any]":
-        """Return the schedule state dict.
+    def __repr__(self) -> "str":
+        return f"{type(self).__name__}(batch_size: {self.batch_size})"
 
-        Returns
-        -------
-            The schedule state dict.
+    def _reset(self, mask: "ndarray") -> "None":
+        """See documentation of `reset`."""
+        pass
 
-        """
-        return {
-            k: v.state_dict() if hasattr(v, "state_dict") else v
-            for k, v in self.__dict__.items()
-        }
-
-    def load_state_dict(self, state_dict: "Dict[str, Any]") -> "None":
-        """Load a state dict into the schedule.
-
-        Parameters
-        ----------
-        state_dict:
-            The state dict.
-
-        Raises
-        ------
-        KeyError
-            If `state_dict` contains unknown keys.
-
-        """
-        for k, v in state_dict.items():
-            if k not in self.__dict__:
-                raise KeyError(f"{k}")
-            if hasattr(self.__dict__[k], "load_state_dict"):
-                self.__dict__[k].load_state_dict(v)
-            else:
-                self.__dict__[k] = v
+    def _step(self, mask: "ndarray") -> "None":
+        """See documentation of `step`."""
+        pass
 
     @abstractmethod
     def __call__(self) -> "Union[int, float, ndarray]":
@@ -168,14 +148,3 @@ class Schedule(ABC):
 
         """
         raise NotImplementedError
-
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}(batch_size: {self.batch_size})"
-
-    def _reset(self, mask: "ndarray") -> "None":
-        """See documentation of `reset`."""
-        pass
-
-    def _step(self, mask: "ndarray") -> "None":
-        """See documentation of `step`."""
-        pass

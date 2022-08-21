@@ -25,6 +25,7 @@ class BroadcastCat(nn.Module):
 
     """
 
+    # override
     def __init__(
         self,
         in_shapes: "Sequence[Tuple[int, ...]]",
@@ -47,6 +48,8 @@ class BroadcastCat(nn.Module):
         """
         super().__init__()
         max_event_ndims = max([len(shape) for shape in in_shapes])
+        # Handle case in which all input event shapes are empty
+        max_event_ndims = max(max_event_ndims, 1)
         if (
             dim < -max_event_ndims
             or dim >= max_event_ndims
@@ -92,6 +95,8 @@ class BroadcastCat(nn.Module):
             The broadcast concatenation of `inputs`.
 
         """
+        if len(inputs) == 1:
+            return inputs[0]
         expanded_inputs = []
         batch_ndims = None
         for i, input in enumerate(inputs):
@@ -105,9 +110,10 @@ class BroadcastCat(nn.Module):
             expanded_inputs.append(expanded_input)
         return torch.cat(expanded_inputs, dim=batch_ndims + self.dim)
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(in_shapes: {self.in_shapes}, "
             f"dim: {self.dim})"
         )

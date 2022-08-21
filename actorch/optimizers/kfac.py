@@ -20,15 +20,20 @@ from torch.cuda.amp import GradScaler
 from torch.distributions.kl import _Match as Match
 from torch.optim import Optimizer
 
+from actorch.utils import CheckpointableMixin
+
 
 __all__ = [
     "KFAC",
 ]
 
 
-class KFACModule(ABC, nn.Module):
+class KFACModule(ABC, CheckpointableMixin, nn.Module):
     """Wrap a module to make it compatible with K-FAC preconditioner."""
 
+    _STATE_VARS = ["a", "g", "_A", "_G", "_dA", "_dG", "_QA", "_QG"]  # override
+
+    # override
     def __init__(self, module: "nn.Module") -> "None":
         """Initialize the object.
 
@@ -52,25 +57,13 @@ class KFACModule(ABC, nn.Module):
         destination: "Optional[Dict[str, Tensor]]" = None,
         prefix: "str" = "",
         keep_vars: "bool" = False,
-    ) -> "Dict[str, Tensor]":
+    ) -> "Dict[str, Optional[Tensor]]":
+        state_dict = super().state_dict()
         if destination is None:
             destination = {}
-        destination[prefix + "a"], destination[prefix + "g"] = self.a, self.g
-        destination[prefix + "_A"], destination[prefix + "_G"] = self._A, self._G
-        destination[prefix + "_dA"], destination[prefix + "_dG"] = self._dA, self._dG
-        destination[prefix + "_QA"], destination[prefix + "_QG"] = self._QA, self._QG
+        for k, v in state_dict.items():
+            destination[prefix + k] = v if (keep_vars or v is None) else v.detach()
         return destination
-
-    # override
-    def load_state_dict(
-        self,
-        state_dict: "Dict[str, Tensor]",
-        strict: "bool" = True,
-    ) -> "None":
-        self.a, self.g = state_dict["a"], state_dict["g"]
-        self._A, self._G = state_dict["_A"], state_dict["_G"]
-        self._dA, self._dG = state_dict["_dA"], state_dict["_dG"]
-        self._QA, self._QG = state_dict["_QA"], state_dict["_QG"]
 
     def update_AG(self, decay: "float") -> "None":
         """Update Fisher factors A and G.
@@ -103,8 +96,8 @@ class KFACModule(ABC, nn.Module):
         """
         self._dA, self._QA = torch.linalg.eigh(self._A, UPLO="U")
         self._dG, self._QG = torch.linalg.eigh(self._G, UPLO="U")
-        self._dA *= (self._dA > epsilon).float()
-        self._dG *= (self._dG > epsilon).float()
+        self._dA *= (self._dA > epsilon).type_as(self._dA)
+        self._dG *= (self._dG > epsilon).type_as(self._dA)
 
     def get_preconditioned_grad(self, damping: "float") -> "Tensor":
         """Return the module preconditioned flat gradient.
@@ -227,7 +220,7 @@ class KFACLinear(KFACModule):
         return g.t() @ (g / g.shape[0])
 
 
-class KFACConvNd(KFACLinear):
+class KFACConvNd(KFACModule):
     """K-FAC N-D convolutional layer wrapper.
 
     References
@@ -237,6 +230,26 @@ class KFACConvNd(KFACLinear):
            URL: https://arxiv.org/abs/1602.01407
 
     """
+
+    # override
+    @property
+    def grad(self) -> "Tensor":
+        weight_grad = self.module.weight.grad.flatten(start_dim=1)
+        if self.module.bias is not None:
+            bias_grad = self.module.bias.grad[..., None]
+            return torch.cat([weight_grad, bias_grad], dim=1)
+        return weight_grad
+
+    # override
+    @grad.setter
+    def grad(self, value: "Tensor") -> "None":
+        if self.module.bias is not None:
+            weight_grad = value[:, :-1].reshape_as(self.module.weight)
+            bias_grad = value[:, -1:].reshape_as(self.module.bias)
+            self.module.bias.grad.copy_(bias_grad)
+        else:
+            weight_grad = value.reshape_as(self.module.weight)
+        self.module.weight.grad.copy_(weight_grad)
 
     # override
     def _compute_A(self, a: "Tensor") -> "Tensor":
@@ -311,6 +324,7 @@ class KFAC(Optimizer):
         nn.Conv3d: KFACConvNd,
     }
 
+    # override
     def __init__(
         self,
         model: "nn.Module",
@@ -343,7 +357,7 @@ class KFAC(Optimizer):
         kfac_update_freq:
             The number of iterations between applying gradient preconditioning.
         grad_scaler:
-            The gradient scaler for AMP training.
+            The gradient scaler for automatic mixed precision training.
         epsilon:
             The term added to the denominators to improve numerical stability.
 
@@ -392,8 +406,13 @@ class KFAC(Optimizer):
         }
         # K-FAC does not register any parameters
         super().__init__([torch.empty(1)], defaults)
+        self.state["model"] = model
         self.state["grad_scaler"] = grad_scaler
         self._register_submodules(model)
+
+    @property
+    def model(self) -> "nn.Module":
+        return self.state.get("model")
 
     @property
     def lr(self) -> "float":
@@ -420,19 +439,46 @@ class KFAC(Optimizer):
         return self.param_groups[0]["kfac_update_freq"]
 
     @property
-    def epsilon(self) -> "float":
-        return self.param_groups[0]["epsilon"]
-
-    @property
     def grad_scaler(self) -> "GradScaler":
         return self.state.get("grad_scaler")
 
+    @property
+    def epsilon(self) -> "float":
+        return self.param_groups[0]["epsilon"]
+
     # override
-    def state_dict(self) -> "Dict[str, Any]":
+    def state_dict(
+        self,
+        include_model: "bool" = True,
+        include_grad_scaler: "bool" = True,
+    ) -> "Dict[str, Any]":
+        """Return the preconditioner state dict.
+
+        Parameters
+        ----------
+        include_model:
+            True to include the model state dict,
+            False otherwise.
+        include_grad_scaler:
+            True to include the gradient scaler state dict,
+            False otherwise.
+
+        Returns
+        -------
+            The preconditioner state dict.
+
+        """
         state_dict = super().state_dict()
-        state_dict["state"]["grad_scaler"] = None
-        if self.grad_scaler:
-            state_dict["state"]["grad_scaler"] = self.grad_scaler.state_dict()
+        if include_model:
+            state_dict["state"]["model"] = self.model.state_dict()
+        else:
+            del state_dict["state"]["model"]
+        if include_grad_scaler:
+            state_dict["state"]["grad_scaler"] = None
+            if self.grad_scaler:
+                state_dict["state"]["grad_scaler"] = self.grad_scaler.state_dict()
+        else:
+            del state_dict["state"]["grad_scaler"]
         state_dict["state"]["_modules"] = [
             module.state_dict() for module in self._modules.values()
         ]
@@ -441,7 +487,10 @@ class KFAC(Optimizer):
     # override
     def load_state_dict(self, state_dict: "Dict[str, Any]") -> "None":
         state_dict = {k: v for k, v in state_dict.items()}  # Copy
-        grad_scaler_state = state_dict["state"].pop("grad_scaler")
+        model_state = state_dict["state"].pop("model", None)
+        if model_state:
+            self.model.load_state_dict(model_state)
+        grad_scaler_state = state_dict["state"].pop("grad_scaler", None)
         if self.grad_scaler and grad_scaler_state:
             self.grad_scaler.load_state_dict(grad_scaler_state)
         module_states = state_dict["state"].pop("_modules")
@@ -452,7 +501,7 @@ class KFAC(Optimizer):
             )
         for module, state in zip(self._modules.values(), module_states):
             module.load_state_dict(state)
-        # Workaround to prevent self.grad_scaler
+        # Workaround to prevent self.model, self.grad_scaler
         # and self._modules from being deleted
         state_backup = {k: v for k, v in self.state.items()}  # Copy
         super().load_state_dict(state_dict)
@@ -509,13 +558,9 @@ class KFAC(Optimizer):
             module.register_full_backward_hook(self._save_grad_output)
             return
         submodules = list(module.children())
-        if (
-            not submodules
-            and list(module.parameters())  # Is a leaf module
-            and all(
-                x.requires_grad for x in module.parameters()
-            )  # Has trainable parameters
-        ):
+        if not submodules and any(
+            x.requires_grad for x in module.parameters()
+        ):  # Is a leaf module with trainable parameters
             raise NotImplementedError(f"Unsupported module type: {cls}")
         for submodule in submodules:
             self._register_submodules(submodule)
@@ -542,10 +587,12 @@ class KFAC(Optimizer):
                 g /= self.grad_scaler.get_scale()
             self._modules[module].g = g
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
-            f"(lr: {self.lr}, "
+            f"{type(self).__name__}"
+            f"(model: {self.model}, "
+            f"lr: {self.lr}, "
             f"factor_decay: {self.factor_decay}, "
             f"damping: {self.damping}, "
             f"kl_clip: {self.kl_clip}, "

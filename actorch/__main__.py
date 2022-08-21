@@ -13,7 +13,6 @@ from colorama import Fore, Style, init
 
 from actorch.runner import Run
 from actorch.version import VERSION
-from actorch.visualizer import Visualize
 
 
 __all__ = [
@@ -30,10 +29,10 @@ _ASCII_LOGO = (
     + Style.BRIGHT
     + f"""
     _    ____ _____              _     
-   / \  / ___|_   _|__  _ __ ___| |__  
-  / _ \| |     | |/ _ \| '__/ __| '_ \ 
- / ___ \ |___  | | (_) | | | (__| | | |
-/_/   \_\____| |_|\___/|_|  \___|_| |_|{VERSION}
+   / \\  / ___|_   _|__  _ __ ___| |__  
+  / _ \\| |     | |/ _ \\| '__/ __| '_ \\ 
+ / ___ \\ |___  | | (_) | | | (__| | | |
+/_/   \\_\\____| |_|\\___/|_|  \\___|_| |_|{VERSION}
 
 """
     + Style.RESET_ALL
@@ -43,12 +42,19 @@ _ASCII_LOGO = (
 class ACTorch:
     """ACTorch main script."""
 
-    _SCRIPT_TYPES = {
-        "run": Run,
-        "visualize": Visualize,
-    }
+    _SCRIPTS = {"run": Run}
 
-    def main(self, args: "Namespace") -> "None":
+    try:
+        from actorch.visualizer import Visualize
+
+        _SCRIPTS["visualize"] = Visualize
+    except ImportError as e:
+        import warnings
+
+        warnings.warn(e.msg, UserWarning)
+
+    @classmethod
+    def main(cls, args: "Namespace") -> "None":
         """Script entry point.
 
         Parameters
@@ -60,11 +66,9 @@ class ACTorch:
 
         """
         command = getattr(args, "command", None)
-        if command not in self._SCRIPT_TYPES:
-            raise ValueError(
-                f"`command` ({command}) must be in {list(self._SCRIPT_TYPES)}"
-            )
-        script = self._SCRIPT_TYPES[command]()
+        if command not in cls._SCRIPTS:
+            raise ValueError(f"`command` ({command}) must be in {list(cls._SCRIPTS)}")
+        script = cls._SCRIPTS[command]()
         del args.command
         script.main(args)
 
@@ -87,8 +91,8 @@ class ACTorch:
         subparsers = parser.add_subparsers(
             title="command", dest="command", required=True
         )
-        for command, script_cls in cls._SCRIPT_TYPES.items():
-            command_parser = script_cls.get_default_parser()
+        for command, script in cls._SCRIPTS.items():
+            command_parser = script.get_default_parser()
             help = description = command_parser.description
             if help:
                 help = f"{help[0].lower()}{help[1:]}"
@@ -101,9 +105,6 @@ class ACTorch:
             )
         return parser
 
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}()"
-
 
 def main() -> "None":
     """ACTorch entry point."""
@@ -112,8 +113,7 @@ def main() -> "None":
         parser = ACTorch.get_default_parser()
         args = parser.parse_args()
         print("------------------- Start ------------------")
-        actorch = ACTorch()
-        actorch.main(args)
+        ACTorch.main(args)
         print("------------------- Done -------------------")
     except KeyboardInterrupt:
         print("---- Exiting early (Keyboard Interrupt) ----")

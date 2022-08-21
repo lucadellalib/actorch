@@ -43,6 +43,7 @@ class Finite(Distribution):
     is_discrete = True
     """Whether the distribution is discrete."""
 
+    # override
     def __init__(
         self,
         probs: "Optional[Tensor]" = None,
@@ -84,7 +85,9 @@ class Finite(Distribution):
 
     # override
     def expand(
-        self, batch_shape: "Size" = torch.Size(), _instance: "Optional[Finite]" = None
+        self,
+        batch_shape: "Size" = torch.Size(),  # noqa: B008
+        _instance: "Optional[Finite]" = None,
     ) -> "Finite":
         new = self._get_checked_instance(Finite, _instance)
         param_shape = batch_shape + self.atoms.shape[-1:]
@@ -113,6 +116,14 @@ class Finite(Distribution):
     @property
     def mean(self) -> "Tensor":
         return (self.probs * self.atoms).sum(dim=-1)
+
+    # override
+    @property
+    def mode(self) -> "Tensor":
+        return self.atoms.gather(
+            -1,
+            self.probs.argmax(dim=-1, keepdim=True),
+        )[..., 0]
 
     # override
     @property
@@ -171,9 +182,10 @@ class Finite(Distribution):
     def entropy(self) -> "Tensor":
         return self._one_hot_categorical.entropy()
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(probs: {self.probs if self.probs.numel() == 1 else self.probs.shape}, "
             f"atoms: {self.atoms if self.atoms.numel() == 1 else self.atoms.shape})"
         )

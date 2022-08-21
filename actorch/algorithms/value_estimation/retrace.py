@@ -24,48 +24,44 @@ def retrace(
     state_values: "Union[Tensor, Distribution]",
     action_values: "Union[Tensor, Distribution]",
     rewards: "Tensor",
-    dones: "Tensor",
-    mask: "Tensor",
+    terminals: "Tensor",
     log_is_weights: "Tensor",
-    next_state_values: "Optional[Union[Tensor, Distribution]]" = None,
+    mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
     trace_decay: "float" = 1.0,
     max_is_weight_trace: "float" = 1.0,
     max_is_weight_advantage: "float" = 1.0,
-    standardize_advantage: "bool" = False,
-    epsilon: "float" = 1e-6,
 ) -> "Tuple[Union[Tensor, Distribution], Tensor]":
-    """Compute the (distributional) Retrace targets, a.k.a. Retrace(lambda), and the corresponding
-    advantages of a trajectory.
+    """Compute the (possibly distributional) Retrace targets, a.k.a. Retrace(lambda),
+    and the corresponding advantages of a trajectory.
 
-    In the following, let `B` denote the batch size and `T` the trajectory maximum length.
+    In the following, let `B` denote the batch size and `T` the maximum
+    trajectory length.
 
     Parameters
     ----------
     state_values:
-        The (distributional) state values (`v_t` in the literature),
-        shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
+        The (possibly distributional) state values (`v_t` in the literature),
+        shape (or batch shape if distributional, assuming an empty event shape):
+        ``[B, T + 1]`` if a bootstrap value is given, ``[B, T]`` otherwise.
     action_values:
-        The (distributional) action values (`q_t` in the literature),
+        The (possibly distributional) action values (`q_t` in the literature),
         shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
     rewards:
         The rewards (`r_t` in the literature), shape: ``[B, T]``.
-    dones:
-        The end-of-episode flags, shape: ``[B, T]``.
-    mask:
-        The boolean tensor indicating which elements (or batch elements
-        if distributional) are valid (True) and which are not (False),
-        shape: ``[B, T]``.
+    terminals:
+        The terminal flags, shape: ``[B, T]``.
     log_is_weights:
         The log importance sampling weights, defined as
         ``target_policy.log_prob(action) - behavior_policy.log_prob(action)``,
         where `target_policy` (`pi` in the literature) is the policy being learned about,
         and `behavior_policy` (`mu` in the literature) the one used to generate the data,
         shape: ``[B, T]``.
-    next_state_values:
-        The (distributional) next state values (`v_t+1` in the literature),
-        shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``.
-        Default to `state_values` from the second timestep on, with a bootstrap value set to 0.
+    mask:
+        The boolean tensor indicating which elements (or batch elements
+        if distributional) are valid (True) and which are not (False),
+        shape: ``[B, T]``.
+        Default to ``torch.ones_like(rewards, dtype=torch.bool)``.
     discount:
         The discount factor (`gamma` in the literature).
     trace_decay:
@@ -74,14 +70,10 @@ def retrace(
         The maximum importance sampling weight for trace computation (`c_bar` in the literature).
     max_is_weight_advantage:
         The maximum importance sampling weight for advantage computation.
-    standardize_advantage:
-        True to standardize the advantages, False otherwise.
-    epsilon:
-        The term added to the denominators to improve numerical stability.
 
     Returns
     -------
-        - The (distributional) Retrace targets,
+        - The (possibly distributional) Retrace targets,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
         - the corresponding advantages, shape: ``[B, T]``.
 
@@ -112,16 +104,13 @@ def retrace(
     return generalized_estimator(
         state_values=state_values,
         rewards=rewards,
-        dones=dones,
-        mask=mask,
+        terminals=terminals,
         trace_weights=trace_weights,
         delta_weights=delta_weights,
         advantage_weights=advantage_weights,
         action_values=action_values,
-        next_state_values=next_state_values,
+        mask=mask,
         discount=discount,
-        num_return_steps=mask.shape[1],
+        num_return_steps=rewards.shape[1],
         trace_decay=trace_decay,
-        standardize_advantage=standardize_advantage,
-        epsilon=epsilon,
     )

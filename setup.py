@@ -64,12 +64,16 @@ _REQUIREMENTS = _parse_requirements(
     os.path.join(_ROOT_DIRPATH, "requirements", "requirements.txt")
 )
 
-_REQUIREMENTS_DEV = _parse_requirements(
-    os.path.join(_ROOT_DIRPATH, "requirements", "requirements-dev.txt")
+_REQUIREMENTS_VISUALIZER = _parse_requirements(
+    os.path.join(_ROOT_DIRPATH, "requirements", "requirements-visualizer.txt")
 )
 
 _REQUIREMENTS_TEST = _parse_requirements(
     os.path.join(_ROOT_DIRPATH, "requirements", "requirements-test.txt")
+)
+
+_REQUIREMENTS_DEV = _parse_requirements(
+    os.path.join(_ROOT_DIRPATH, "requirements", "requirements-dev.txt")
 )
 
 # Manually preinstall setup requirements since build system specification in
@@ -81,8 +85,8 @@ for requirement in _REQUIREMENTS_SETUP:
     _preinstall_requirement(requirement)
 
 
-import numpy as np
-from setuptools import Extension, find_packages, setup
+import numpy as np  # noqa: E402
+from setuptools import Extension, find_packages, setup  # noqa: E402
 
 
 setup(
@@ -127,6 +131,13 @@ setup(
     include_package_data=True,
     install_requires=_REQUIREMENTS,
     entry_points={"console_scripts": ["actorch=actorch.__main__:main"]},
-    extras_require={"dev": _REQUIREMENTS_DEV, "test": _REQUIREMENTS_TEST},
+    extras_require={
+        "visualizer": _REQUIREMENTS_VISUALIZER,
+        "test": _REQUIREMENTS_TEST,
+        "dev": _REQUIREMENTS_DEV,
+        "all": list(
+            set(_REQUIREMENTS_VISUALIZER + _REQUIREMENTS_TEST + _REQUIREMENTS_DEV)
+        ),
+    },
     python_requires=">=3.6",
 )

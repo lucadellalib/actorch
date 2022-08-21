@@ -4,6 +4,5 @@
 
 """Experience samplers."""
 
-from actorch.samplers.batched_sampler import *
 from actorch.samplers.callbacks import *
 from actorch.samplers.sampler import *

@@ -4,9 +4,9 @@
 
 """One-hot decode processor."""
 
-import torch
 from torch import Size, Tensor
 
+from actorch.networks.processors import one_hot_encode as ohe  # Avoid circular import
 from actorch.networks.processors.processor import Processor
 
 
@@ -18,6 +18,7 @@ __all__ = [
 class OneHotDecode(Processor):
     """One-hot decode a tensor."""
 
+    # override
     def __init__(self, num_classes: "int") -> "None":
         """Initialize the object.
 
@@ -37,19 +38,29 @@ class OneHotDecode(Processor):
                 f"`num_classes` ({num_classes}) must be in the integer interval [1, inf)"
             )
         self.num_classes = int(num_classes)
-        self._in_shape = torch.Size([self.num_classes])
-        self._out_shape = torch.Size([1])
+        self._in_shape = Size([self.num_classes])
+        self._out_shape = Size([])
+        super().__init__()
 
+    # override
     @property
     def in_shape(self) -> "Size":
         return self._in_shape
 
+    # override
     @property
     def out_shape(self) -> "Size":
         return self._out_shape
 
-    def __call__(self, input: "Tensor") -> "Tensor":
-        return input.argmax(dim=-1, keepdim=True)
+    # override
+    @property
+    def inv(self) -> "ohe.OneHotEncode":
+        return ohe.OneHotEncode(self.num_classes)
 
+    # override
+    def _forward(self, input: "Tensor") -> "Tensor":
+        return input.argmax(dim=-1)
+
+    # override
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}" f"(num_classes: {self.num_classes})"
+        return f"{type(self).__name__}(num_classes: {self.num_classes})"

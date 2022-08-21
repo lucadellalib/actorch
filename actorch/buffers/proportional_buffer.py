@@ -31,6 +31,15 @@ class ProportionalBuffer(UniformBuffer):
 
     """
 
+    _STATE_VARS = UniformBuffer._STATE_VARS + [
+        "prioritization",
+        "bias_correction",
+        "epsilon",
+        "_priorities",
+        "_max_priority",
+    ]  # override
+
+    # override
     def __init__(
         self,
         capacity: "Union[int, float]",
@@ -53,13 +62,13 @@ class ProportionalBuffer(UniformBuffer):
             - "shape": the event shape of the value to store. Default to ``()``;
             - "dtype": the dtype of the value to store. Default to ``np.float32``.
         prioritization:
-            The prioritization schedule (`alpha` in the literature;
-            0: no prioritization, 1: full prioritization).
-            If a number, it is wrapped in a `ConstantSchedule`.
+            The schedule for the prioritization coefficient (`alpha` in the
+            literature; 0: no prioritization, 1: full prioritization).
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
         bias_correction:
-            The bias correction schedule (`beta` in the literature;
-            0: no correction, 1: full correction).
-            If a number, it is wrapped in a `ConstantSchedule`.
+            The schedule for the bias correction coefficient (`beta` in the
+            literature; 0: no correction, 1: full correction).
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
         epsilon:
             The term added to the priorities to ensure a
             non-zero probability of sampling each trajectory.
@@ -72,16 +81,12 @@ class ProportionalBuffer(UniformBuffer):
         """
         if epsilon <= 0.0:
             raise ValueError(f"`epsilon` ({epsilon}) must be in the interval (0, inf)")
-        self.prioritization = (
-            prioritization
-            if isinstance(prioritization, Schedule)
-            else ConstantSchedule(prioritization)
-        )
-        self.bias_correction = (
-            bias_correction
-            if isinstance(bias_correction, Schedule)
-            else ConstantSchedule(bias_correction)
-        )
+        if not isinstance(prioritization, Schedule):
+            prioritization = ConstantSchedule(prioritization)
+        self.prioritization = prioritization
+        if not isinstance(bias_correction, Schedule):
+            bias_correction = ConstantSchedule(bias_correction)
+        self.bias_correction = bias_correction
         self.epsilon = epsilon
         super().__init__(capacity, spec)
         self._schedules = {
@@ -90,8 +95,8 @@ class ProportionalBuffer(UniformBuffer):
         }
 
     # override
-    def reset(self) -> "None":
-        super().reset()
+    def _reset(self) -> "None":
+        super()._reset()
         self._priorities = np.zeros_like(self._terminals, dtype=np.float32)
         self._max_priority = 1.0
 
@@ -107,7 +112,9 @@ class ProportionalBuffer(UniformBuffer):
             raise ValueError(
                 f"`prioritization` ({prioritization}) must be in the interval [0, 1]"
             )
-        self._priorities[self._idx] = self._max_priority**prioritization
+        self._priorities[
+            self._idx
+        ] = self._max_priority**prioritization + np.random.random(1)
 
     # override
     def _update_priority(
@@ -156,7 +163,7 @@ class ProportionalBuffer(UniformBuffer):
         self,
         batch_size: "int",
     ) -> "Tuple[ndarray, ndarray]":
-        # Select `batch_size` (possibly independent) trajectories based on their priorities
+        # Select batch_size (possibly independent) trajectories based on their priorities
         bias_correction = self.bias_correction()
         if bias_correction < 0.0 or bias_correction > 1.0:
             raise ValueError(
@@ -175,10 +182,12 @@ class ProportionalBuffer(UniformBuffer):
         ) / max_is_weight
         return trajectory_start_idx, is_weight
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(capacity: {self.capacity}, "
+            f"spec: {self.spec}, "
             f"prioritization: {self.prioritization}, "
             f"bias_correction: {self.bias_correction}, "
             f"epsilon: {self.epsilon}, "

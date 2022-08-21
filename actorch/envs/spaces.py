@@ -4,10 +4,11 @@
 
 """Spaces."""
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 from gym import spaces
+from gym.utils.seeding import RandomNumberGenerator
 from numpy import ndarray
 
 from actorch.envs.utils import (
@@ -29,10 +30,12 @@ __all__ = [
 class Flat(spaces.Box):
     """Space wrapper that flattens a base space."""
 
+    # override
     def __init__(
         self,
         space: "spaces.Space",
         is_batched: "bool" = False,
+        seed: "Optional[Union[int, RandomNumberGenerator]]" = None,
     ) -> "None":
         """Initialize the object.
 
@@ -42,34 +45,55 @@ class Flat(spaces.Box):
             The base space to flatten.
         is_batched:
             True if `space` is batched, False otherwise.
+        seed:
+            The seed for generating random numbers.
+
+        Raises
+        ------
+        ValueError
+            If `space` is not batched when `is_batched` is True.
 
         """
-        # Check that space is batched when is_batched=True
-        flatten(space, space.sample(), is_batched, copy=False, validate_args=True)
+        if is_batched:
+            try:
+                flatten(
+                    space, space.sample(), is_batched, copy=False, validate_args=True
+                )
+            except Exception:
+                raise ValueError(
+                    f"`space` ({space}) must be batched when "
+                    f"`is_batched` ({is_batched}) is True"
+                )
         self.space = space
         self.is_batched = is_batched
         low, high = get_space_bounds(space)
         low, high = self.flatten(low), self.flatten(high)
-        unnested_space = unnest_space(space)
-        self._shape_dict, self._type_dict = {}, {}
-        for (key, space) in unnested_space.items():
-            x = np.array(space.sample(), copy=False, ndmin=1)
-            self._shape_dict[key] = x.shape
-            self._type_dict[key] = type(space)
-        super().__init__(low, high, dtype=low.dtype)
+        self._unnested = unnest_space(space)
         self._cached_flat_unflat = None, None
+        super().__init__(low, high, dtype=low.dtype, seed=seed)
 
     @property
-    def shape_dict(self) -> "Dict[str, Tuple[int, ...]]":
-        return self._shape_dict
+    def np_random(self) -> "RandomNumberGenerator":
+        return self.space.np_random
 
     @property
-    def type_dict(self) -> "Dict[str, Type[spaces.Space]]":
-        return self._type_dict
+    def unnested(self) -> "Dict[str, spaces.Space]":
+        """Return the unnested base space.
+
+        Returns
+        -------
+            The unnested base space.
+
+        See Also
+        --------
+        actorch.envs.utils.unnest_space
+
+        """
+        return self._unnested
 
     # override
-    def sample(self) -> "ndarray":
-        unflat = self.space.sample()
+    def sample(self, mask: "None" = None) -> "ndarray":
+        unflat = self.space.sample(mask)
         flat = self.flatten(unflat)
         self._cached_flat_unflat = flat, unflat
         return flat
@@ -123,7 +147,7 @@ class Flat(spaces.Box):
             The sample.
 
         """
-        return unflatten(self.space, x, copy=False)
+        return unflatten(self.space, x, self.is_batched, copy=False)
 
     def log_prob(self, x: "ndarray") -> "ndarray":
         """Return the log probability of a flat
@@ -144,6 +168,7 @@ class Flat(spaces.Box):
             unflat = self.unflatten(x)
         return get_log_prob(self.space, unflat, self.is_batched)
 
+    # override
     def __eq__(self, other: "Any") -> "bool":
         return (
             isinstance(other, Flat)
@@ -151,9 +176,10 @@ class Flat(spaces.Box):
             and self.is_batched == other.is_batched
         )
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(space: {self.space}, "
             f"is_batched: {self.is_batched})"
         )

@@ -16,3 +16,5 @@ echo Uninstalling virtual environment...
 call conda env remove -n %env_name%
 
 echo Done!
+
+pause

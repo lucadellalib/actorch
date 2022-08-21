@@ -74,6 +74,7 @@ class Network(nn.Module):
     wrapped_model: "nn.Module"
     """The underlying wrapped model."""
 
+    # override
     def __init__(
         self,
         preprocessors: "Dict[str, Processor]",
@@ -93,12 +94,13 @@ class Network(nn.Module):
             input modalities to their corresponding preprocessors.
         model_builder:
             The model builder, i.e. a callable that receives keyword
-            arguments from a configuration and returns a model.
+            arguments from a model configuration and returns a model.
         distribution_builders:
             The distribution builders, i.e. a dict that maps names of
             the output modalities to their corresponding distribution
             builders. A distribution builder is a callable that receives
-            keyword arguments from a configuration and returns a distribution.
+            keyword arguments from a distribution parametrization and a
+            distribution configuration and returns a distribution.
         distribution_parametrizations:
             The distribution parametrizations, i.e. a dict that maps names
             of the output modalities to their corresponding distribution
@@ -111,7 +113,7 @@ class Network(nn.Module):
             The distribution configurations, i.e. a dict that maps names
             of the output modalities to their corresponding distribution
             configurations.
-            Arguments in `distribution_parametrizations` are set internally.
+            Arguments defined in `distribution_parametrizations` are set internally.
             Default to ``{}``.
         normalizing_flows:
             The normalizing flows, i.e. a dict that maps names of the
@@ -151,20 +153,22 @@ class Network(nn.Module):
         self.distribution_configs = distribution_configs
         self.normalizing_flows = nn.ModuleDict(normalizing_flows)
         model_in_shapes = {
-            modality_name: processor.out_shape
-            for modality_name, processor in self.preprocessors.items()
+            in_modality_name: preprocessor.out_shape
+            for in_modality_name, preprocessor in self.preprocessors.items()
         }
         model_out_shapes = {}
-        for modality_name in out_modality_names:
-            parametrization = distribution_parametrizations[modality_name]
-            for params, _ in parametrization.values():
+        for out_modality_name in out_modality_names:
+            distribution_parametrization = distribution_parametrizations[
+                out_modality_name
+            ]
+            for params, _ in distribution_parametrization.values():
                 for param_name, param_shape in params.items():
-                    key = f"{modality_name}/{param_name}"
+                    key = f"{out_modality_name}/{param_name}"
                     if key in model_out_shapes:
                         param_names = [
                             param_name
                             for param_name in params
-                            for params, _ in parametrization.values()
+                            for params, _ in distribution_parametrization.values()
                         ]
                         raise ValueError(
                             f"Parameter names related to the same "
@@ -174,25 +178,26 @@ class Network(nn.Module):
         model = model_builder(model_in_shapes, model_out_shapes, **self.model_config)
         example_inputs, example_states, _ = model.get_example_inputs()
         self._state_preprocessors, self._state_postprocessors = {}, {}
-        for key, state in example_states.items():
-            shape = state.shape[1:]
+        for key, example_state in example_states.items():
+            shape = example_state.shape[1:]
             self._state_preprocessors[key] = Identity(shape)
             self._state_postprocessors[key] = Identity(shape)
         self._output_preprocessors, self._output_postprocessors = {}, {}
-        for key, shape in model_out_shapes.items():
-            self._output_preprocessors[key] = Identity(shape)
-            self._output_postprocessors[key] = Identity(shape)
+        for key, model_out_shape in model_out_shapes.items():
+            self._output_preprocessors[key] = Identity(model_out_shape)
+            self._output_postprocessors[key] = Identity(model_out_shape)
 
         # Thin wrapper around the model that handles preprocessing of inputs,
         # flattening of outputs, and unflattening/flattening of states
         class WrappedModel(nn.Module):
+            # override
             def __init__(self) -> "None":
                 super().__init__()
                 self.model = model
 
             # override
             def forward(
-                this,
+                _self,
                 input: "Tensor",
                 state: "Optional[Tensor]" = None,
                 mask: "Optional[Tensor]" = None,
@@ -203,11 +208,15 @@ class Network(nn.Module):
                     if state is None
                     else self._unflatten(state, self._state_preprocessors)
                 )
-                model_outputs, model_states = this.model(
+                model_outputs, model_states = _self.model(
                     model_inputs, model_states, mask
                 )
                 output = self._flatten(model_outputs, self._output_postprocessors)
-                state = self._flatten(model_states, self._state_postprocessors)
+                state = (
+                    self._flatten(model_states, self._state_postprocessors)
+                    if model_states
+                    else None
+                )
                 return output, state
 
         self.wrapped_model = WrappedModel()
@@ -251,70 +260,92 @@ class Network(nn.Module):
             if mask is None:
                 mask = torch.as_tensor(True)
             distributions = []
-            for modality_name, builder in self.distribution_builders.items():
+            for (
+                out_modality_name,
+                distribution_builder,
+            ) in self.distribution_builders.items():
                 # Build distribution
-                parametrization = self.distribution_parametrizations[modality_name]
+                distribution_parametrization = self.distribution_parametrizations[
+                    out_modality_name
+                ]
                 kwargs = {
                     arg_name: aggregation_fn(
                         {
-                            param_name: model_outputs[f"{modality_name}/{param_name}"]
+                            param_name: model_outputs[
+                                f"{out_modality_name}/{param_name}"
+                            ]
                             for param_name in params
                         }
                     )
-                    for arg_name, (params, aggregation_fn) in parametrization.items()
+                    for arg_name, (
+                        params,
+                        aggregation_fn,
+                    ) in distribution_parametrization.items()
                 }
-                config = self.distribution_configs.get(modality_name, {})
-                distribution = builder(**kwargs, **config)
+                config = self.distribution_configs.get(out_modality_name, {})
+                distribution = distribution_builder(**kwargs, **config)
                 # Set event dimension
                 batch_ndims = output.ndim - 1
                 reinterpreted_batch_ndims = len(distribution.batch_shape) - batch_ndims
                 if reinterpreted_batch_ndims > 0:
-                    distribution = Independent(distribution, reinterpreted_batch_ndims)
+                    distribution = Independent(
+                        distribution,
+                        reinterpreted_batch_ndims,
+                        distribution._validate_args,
+                    )
                 # Apply mask
                 if not mask.all():
-                    distribution = MaskedDistribution(distribution, mask)
+                    distribution = MaskedDistribution(
+                        distribution, mask, distribution._validate_args
+                    )
                 # Apply normalizing flow
                 try:
-                    event_shape = self._event_shapes[modality_name]
+                    event_shape = self._event_shapes[out_modality_name]
                 except KeyError:
                     event_shape = distribution.event_shape
-                    if modality_name in self.normalizing_flows:
-                        normalizing_flow = self.normalizing_flows[modality_name]
+                    if out_modality_name in self.normalizing_flows:
+                        normalizing_flow = self.normalizing_flows[out_modality_name]
                         event_shape = torch.Size(
                             normalizing_flow.forward_shape(event_shape)
                         )
-                    self._event_shapes[modality_name] = event_shape
+                    self._event_shapes[out_modality_name] = event_shape
                 transforms = []
-                if modality_name in self.normalizing_flows:
-                    normalizing_flow = self.normalizing_flows[modality_name]
+                if out_modality_name in self.normalizing_flows:
+                    normalizing_flow = self.normalizing_flows[out_modality_name]
                     transforms.append(normalizing_flow)
                 # Apply flatten transform
                 if len(event_shape) > 1:
                     transforms.append(
-                        ReshapeTransform(event_shape, (event_shape.numel(),))
+                        ReshapeTransform(
+                            event_shape, torch.Size((event_shape.numel(),))
+                        )
                     )
                 if transforms:
                     distribution = TransformedDistribution(
-                        distribution, transforms
+                        distribution, transforms, distribution._validate_args
                     ).reduced_dist
                 distributions.append(distribution)
             result = (
-                CatDistribution(distributions)
+                CatDistribution(
+                    distributions,
+                    validate_args=any(d._validate_args for d in distributions),
+                )
                 if len(distributions) > 1
                 else distributions[0]
             )
             self._cache["distribution"] = result
         return result
 
+    # override
     def forward(
         self,
         input: "Tensor",
         state: "Optional[Tensor]" = None,
         mask: "Optional[Tensor]" = None,
-    ) -> "Tuple[Tensor, Tensor]":
+    ) -> "Tuple[Tensor, Optional[Tensor]]":
         """Forward pass.
 
-        In the following, let `B = [B_1, ..., B_k]` denote the batch shape,
+        In the following, let `B = {B_1, ..., B_k}` denote the batch shape,
         `B_star` a subset of `B`, `I` the flat input event size, `S` the flat
         state event size, and `O` the flat output event size.
 
@@ -345,11 +376,14 @@ class Network(nn.Module):
         input: "Tensor",
         processors: "Dict[str, Processor]",
     ) -> "Dict[str, Tensor]":
-        batch_shape = input.shape[:-1]
         outputs = {}
         start = stop = 0
+        batch_shape = input.shape[:-1]
         for key, processor in processors.items():
             in_shape = processor.in_shape
+            if len(processors) == 1 and not in_shape:
+                batch_shape = input.shape
+                input = input[..., None]
             stop += in_shape.numel()
             chunk = input[..., start:stop]
             outputs[key] = processor(chunk.reshape(batch_shape + in_shape))
@@ -362,9 +396,14 @@ class Network(nn.Module):
         processors: "Dict[str, Processor]",
     ) -> "Tensor":
         outputs = []
+        batch_shape = None
         for key, processor in processors.items():
             input = inputs[key]
             in_shape, out_shape = processor.in_shape, processor.out_shape
-            batch_shape = input.shape[: input.ndim - len(in_shape)]
-            outputs.append(processor(input).reshape(*batch_shape, out_shape.numel()))
+            if batch_shape is None:
+                batch_shape = input.shape[: input.ndim - len(in_shape)]
+            output = processor(input)
+            if len(processors) == 1:
+                return output.reshape(batch_shape + ((-1,) if out_shape else ()))
+            outputs.append(output.reshape(*batch_shape, -1))
         return torch.cat(outputs, dim=-1)

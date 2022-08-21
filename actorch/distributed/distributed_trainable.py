@@ -6,17 +6,27 @@
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, List, Optional, Sequence, TypeVar, Union
 
 import ray
 from ray.tune import PlacementGroupFactory
+from ray.tune.sample import Domain
 from ray.tune.trainable import DistributedTrainable as TuneDistributedTrainable
 from ray.util.placement_group import get_current_placement_group, remove_placement_group
 
 
 __all__ = [
     "DistributedTrainable",
+    "Tunable",
 ]
+
+
+_T = TypeVar("_T")
+
+_GridSearch = Dict[str, List[_T]]
+
+Tunable = Union[_T, Domain, _GridSearch[_T]]
+"""Ray Tune tunable argument."""
 
 
 class DistributedTrainable(ABC, TuneDistributedTrainable):
@@ -32,8 +42,8 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
 
         def __init__(
             self,
-            bundles: "Optional[Sequence[Dict[str, Union[int, float]]]]" = None,
-            placement_strategy: "str" = "PACK",
+            bundles: "Tunable[Optional[Sequence[Dict[str, Union[int, float]]]]]" = None,
+            placement_strategy: "Tunable[str]" = "PACK",
         ) -> "None":
             """Initialize the object.
 
@@ -99,9 +109,6 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
     def cleanup(self) -> "None":
         if self._placement_group:
             remove_placement_group(self._placement_group)
-
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}({self.config})"
 
     # override
     @abstractmethod

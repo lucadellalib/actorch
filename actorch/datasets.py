@@ -4,12 +4,14 @@
 
 """Datasets."""
 
-from typing import Dict, Iterator, Union
+from typing import Dict, Iterator, Tuple, Union
 
+from numpy import ndarray
 from torch.utils.data import IterableDataset
 
 from actorch.buffers import Buffer
 from actorch.schedules import ConstantSchedule, Schedule
+from actorch.utils import CheckpointableMixin
 
 
 __all__ = [
@@ -17,44 +19,50 @@ __all__ = [
 ]
 
 
-class BufferDataset(IterableDataset):
+class BufferDataset(IterableDataset, CheckpointableMixin):
     """Dynamic dataset that generates data on-the-fly by sampling
     from an experience replay buffer.
 
     """
+
+    _STATE_VARS = [
+        "buffer",
+        "batch_size",
+        "max_trajectory_length",
+        "num_iterations",
+    ]  # override
 
     def __init__(
         self,
         buffer: "Buffer",
         batch_size: "Union[int, Schedule]",
         max_trajectory_length: "Union[int, float, Schedule]",
-        num_iters: "int",
+        num_iterations: "int",
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
         buffer:
-            The experience replay buffer.
+            The experience replay buffer to sample data from.
         batch_size:
             The schedule for argument `batch_size' of `buffer.sample`.
-            If a number, it is wrapped in a `ConstantSchedule`.
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
         max_trajectory_length:
             The schedule for argument `max_trajectory_length' of `buffer.sample`.
-            If a number, it is wrapped in a `ConstantSchedule`.
-        num_iters:
-            The number of iterations for which method
-            `buffer.sample` is called.
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
+        num_iterations:
+            The number of iterations for which `buffer.sample` is called.
 
         Raises
         ------
         ValueError
-            If `num_iters` is not in the integer interval [1, inf).
+            If `num_iterations` is not in the integer interval [1, inf).
 
         """
-        if num_iters < 1 or not float(num_iters).is_integer():
+        if num_iterations < 1 or not float(num_iterations).is_integer():
             raise ValueError(
-                f"`num_iters` ({num_iters}) must be in the integer interval [1, inf)"
+                f"`num_iterations` ({num_iterations}) must be in the integer interval [1, inf)"
             )
         self.buffer = buffer
         self.batch_size = (
@@ -67,7 +75,7 @@ class BufferDataset(IterableDataset):
             if isinstance(max_trajectory_length, Schedule)
             else ConstantSchedule(max_trajectory_length)
         )
-        self.num_iters = int(num_iters)
+        self.num_iterations = int(num_iterations)
         self._schedules = {
             "batch_size": self.batch_size,
             "max_trajectory_length": self.max_trajectory_length,
@@ -85,22 +93,23 @@ class BufferDataset(IterableDataset):
         """
         return self._schedules
 
-    def __iter__(self) -> "Iterator":
+    # override
+    def __iter__(self) -> "Iterator[Tuple[Dict[str, ndarray], ndarray, ndarray]]":
         batch_size = self.batch_size()
         max_trajectory_length = self.max_trajectory_length()
         return (
             self.buffer.sample(batch_size, max_trajectory_length)
-            for _ in range(self.num_iters)
+            for _ in range(self.num_iterations)
         )
 
     def __len__(self) -> "int":
-        return self.num_iters
+        return self.num_iterations
 
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(buffer: {self.buffer}, "
             f"batch_size: {self.batch_size}, "
             f"max_trajectory_length: {self.max_trajectory_length}, "
-            f"num_iters: {self.num_iters})"
+            f"num_iterations: {self.num_iterations})"
         )

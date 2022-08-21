@@ -9,6 +9,7 @@ from typing import Tuple
 import torch
 from torch import Size, Tensor
 
+from actorch.networks.processors import dec2base as d2b  # Avoid circular import
 from actorch.networks.processors.processor import Processor
 
 
@@ -20,6 +21,7 @@ __all__ = [
 class Base2Dec(Processor):
     """Convert a tensor from a given (possibly mixed) base to base 10."""
 
+    # override
     def __init__(self, base: "Tuple[int, ...]") -> "None":
         """Initialize the object.
 
@@ -42,31 +44,44 @@ class Base2Dec(Processor):
                     f"in the integer interval [1, inf)"
                 )
             self.base.append(x)
-        self.base = torch.as_tensor(self.base)
-        self._in_shape = torch.Size([len(self.base)])
-        self._out_shape = torch.Size([1])
-        weights = self.base.flip(dims=(-1,)).roll(1, dims=-1)
+        self.base = tuple(self.base)
+        self._tensor_base = torch.as_tensor(self.base)
+        self._in_shape = Size([len(self._tensor_base)])
+        self._out_shape = Size([])
+        weights = self._tensor_base.flip(dims=(-1,)).roll(1, dims=-1)
         weights[..., 0] = 1
         weights = weights.cumprod(dim=-1).flip(dims=(-1,)).movedim(-1, 0)
         self._weights = weights
+        super().__init__()
 
+    # override
     @property
     def in_shape(self) -> "Size":
         return self._in_shape
 
+    # override
     @property
     def out_shape(self) -> "Size":
         return self._out_shape
 
-    def __call__(self, input: "Tensor") -> "Tensor":
+    # override
+    @property
+    def inv(self) -> "d2b.Dec2Base":
+        return d2b.Dec2Base(self.base)
+
+    # override
+    def _forward(self, input: "Tensor") -> "Tensor":
         if (
-            (input < 0) | (input >= self.base.expand_as(input)) | (input != input.int())
+            (input < 0)
+            | (input >= self._tensor_base.expand_as(input))
+            | (input != input.int())
         ).any():
             raise ValueError(
                 f"`input` ({input}) must be in the integer interval "
-                f"[{torch.zeros_like(self.base)}, {self.base})"
+                f"[{torch.zeros_like(self._tensor_base)}, {self._tensor_base})"
             )
         return (self._weights * input).sum(dim=-1).int()
 
+    # override
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}" f"(base: {self.base})"
+        return f"{type(self).__name__}(base: {self.base})"

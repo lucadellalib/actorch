@@ -37,9 +37,10 @@ class _Cat(constraints.cat):
         checks = [c.check(chunks[i]) for i, c in enumerate(self.cseq)]
         return torch.stack(checks).all(dim=0)
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__[1:]}"
+            f"{type(self).__name__[1:]}"
             f"({self.cseq}, "
             f"dim: {self.dim}, "
             f"lengths: {self.lengths})"
@@ -61,6 +62,7 @@ class _RealSet(constraints.Constraint):
 
     is_discrete = True
 
+    # override
     def __init__(self, values: "Tensor") -> "None":
         """Initialize the object.
 
@@ -88,8 +90,9 @@ class _RealSet(constraints.Constraint):
         expanded_support = self._values.expand_as(value)
         return (expanded_support == value).any(dim=-1)
 
+    # override
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__[1:]}(values: {self._values})"
+        return f"{type(self).__name__[1:]}(values: {self._values})"
 
 
 # Public interface

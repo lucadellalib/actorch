@@ -30,10 +30,10 @@ conda env list | findstr %env_name% >nul && (
   call conda env create -n %env_name% -f %root_dirpath%\conda\environment-%platform%.yml --force
 )
 
-echo Installing ACTorch...
+echo Installing actorch...
 cd %root_dirpath%
 call conda activate %env_name%
-call pip install -e .[dev]
+call pip install -e .[all]
 if exist .git\ (
   echo Installing git commit hook...
   call pre-commit install -f
@@ -42,3 +42,5 @@ call conda deactivate
 cd %curr_dirpath%
 
 echo Done!
+
+pause

@@ -1,0 +1,7 @@
+matplotlib>=3.2.1
+numpy>=1.19.5
+plotly>=4.9.0
+PyYAML>=5.3.1
+scipy>=1.4.1
+tensorboard>=2.6.0
+tqdm>=4.48.2

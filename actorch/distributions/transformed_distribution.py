@@ -4,8 +4,6 @@
 
 """Transformed distribution."""
 
-from typing import Optional
-
 import torch
 from torch import Size, Tensor
 from torch.distributions import (
@@ -18,6 +16,7 @@ from torch.distributions import TransformedDistribution as TorchTransformedDistr
 from torch.distributions import utils
 from torch.distributions.constraints import Constraint
 
+from actorch.distributions.registries import reduction_registry  # Avoid circular import
 from actorch.distributions.transforms import SumTransform
 from actorch.distributions.utils import is_affine, is_discrete
 
@@ -29,12 +28,12 @@ __all__ = [
 
 class TransformedDistribution(TorchTransformedDistribution):
     """Extended version of `torch.distributions.TransformedDistribution` that
-    implements additional properties and methods (e.g. `mean`,`stddev`, entropy`,
+    implements additional properties and methods (e.g. `mean`,`stddev`, `entropy`,
     etc.) and handles discrete base distributions correctly.
 
     """
 
-    @utils.lazy_property
+    @property
     def is_discrete(self) -> "bool":
         """Whether the distribution is discrete.
 
@@ -43,25 +42,34 @@ class TransformedDistribution(TorchTransformedDistribution):
             True if the distribution is discrete, False otherwise.
 
         """
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return is_discrete(self.reduced_dist)
         return is_discrete(self.base_dist)
 
     # override
     @property
     def support(self) -> "Constraint":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.support
         return super().support
 
     # override
     @property
     def mean(self) -> "Tensor":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.mean
         if self._is_affine_or_sum_transform:
             return self._transform_base_mean()
         return super().mean
+
+    # override
+    @property
+    def mode(self) -> "Tensor":
+        if self.reduced_dist is not self:
+            return self.reduced_dist.mode
+        if self._is_affine_transform:
+            return self._transform_base_mode()
+        return super().mode
 
     # override
     @property
@@ -71,7 +79,7 @@ class TransformedDistribution(TorchTransformedDistribution):
     # override
     @property
     def stddev(self) -> "Tensor":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.stddev
         if self._is_affine_or_sum_transform:
             return self._transform_base_stddev()
@@ -79,19 +87,19 @@ class TransformedDistribution(TorchTransformedDistribution):
 
     # override
     def sample(self, sample_shape: "Size" = torch.Size()) -> "Tensor":  # noqa: B008
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.sample(sample_shape)
         return super().sample(sample_shape)
 
     # override
     def rsample(self, sample_shape: "Size" = torch.Size()) -> "Tensor":  # noqa: B008
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.rsample(sample_shape)
         return super().rsample(sample_shape)
 
     # override
     def log_prob(self, value: "Tensor") -> "Tensor":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.log_prob(value)
         if self.is_discrete and self._is_bijective_transform:
             return self.base_dist.log_prob(self._transform.inv(value.float()))
@@ -99,32 +107,32 @@ class TransformedDistribution(TorchTransformedDistribution):
 
     # override
     def cdf(self, value: "Tensor") -> "Tensor":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.cdf(value)
         return super().cdf(value)
 
     # override
     def icdf(self, value: "Tensor") -> "Tensor":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.icdf(value)
         return super().icdf(value)
 
     # override
     @property
     def has_enumerate_support(self) -> "bool":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.has_enumerate_support
         return super().has_enumerate_support
 
     # override
     def enumerate_support(self, expand: "bool" = True) -> "Tensor":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.enumerate_support(expand)
         return super().enumerate_support(expand)
 
     # override
     def entropy(self) -> "Tensor":
-        if self.reduced_dist:
+        if self.reduced_dist is not self:
             return self.reduced_dist.entropy()
         if not self._is_bijective_transform:
             return super().entropy()
@@ -134,8 +142,8 @@ class TransformedDistribution(TorchTransformedDistribution):
             return super().entropy()
         return self._transform_base_entropy()
 
-    @utils.lazy_property
-    def reduced_dist(self) -> "Optional[Distribution]":
+    @property
+    def reduced_dist(self) -> "Distribution":
         """Reduce the transformed distribution based on the applied transforms.
 
         Returns
@@ -147,30 +155,27 @@ class TransformedDistribution(TorchTransformedDistribution):
         actorch.distributions.registries.reduction_registry.reduce
 
         """
-        # Avoid circular import
-        from actorch.distributions.registries.reduction_registry import reduce
-
         # Contextually check for incompatibilities
         # (e.g. non-maskable batch transforms applied to masked distributions)
-        reduced_distribution = reduce(
+        reduced_distribution = reduction_registry.reduce(
             self.base_dist,
             self._transform,
             validate_args=self._validate_args,
         )
         if isinstance(reduced_distribution, TransformedDistribution):
             # Avoid recursion
-            reduced_distribution.reduced_dist = None
+            return self
         return reduced_distribution
 
-    @utils.lazy_property
+    @property
     def _is_bijective_transform(self) -> "bool":
         return self._transform.bijective
 
-    @utils.lazy_property
+    @property
     def _is_affine_transform(self) -> "bool":
         return is_affine(self._transform)
 
-    @utils.lazy_property
+    @property
     def _is_affine_or_sum_transform(self) -> "bool":
         def check(transform: "Transform") -> "bool":
             if isinstance(transform, ComposeTransform):
@@ -189,6 +194,9 @@ class TransformedDistribution(TorchTransformedDistribution):
 
     def _transform_base_mean(self) -> "Tensor":
         return self._transform(self.base_dist.mean)
+
+    def _transform_base_mode(self) -> "Tensor":
+        return self._transform(self.base_dist.mode)
 
     def _transform_base_stddev(self) -> "Tensor":
         def apply(transform: "Transform", x: "Tensor") -> "Tensor":
@@ -235,15 +243,16 @@ class TransformedDistribution(TorchTransformedDistribution):
             x = y
         return result
 
-    @utils.lazy_property
+    @property
     def _transform(self) -> "Transform":
         if len(self.transforms) > 1:
             return ComposeTransform(self.transforms)
         return self.transforms[0]
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"({self.base_dist}, "
             f"transforms: {self.transforms})"
         )

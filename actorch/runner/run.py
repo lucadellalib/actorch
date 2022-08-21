@@ -16,6 +16,7 @@ from argparse import ArgumentParser, Namespace
 from datetime import datetime
 from typing import Any
 
+import psutil
 import ray
 from ray import tune
 from ray.tune.progress_reporter import detect_reporter
@@ -26,6 +27,7 @@ from actorch.utils import get_system_info, import_module, pretty_print
 
 
 __all__ = [
+    "ExperimentParams",
     "Run",
 ]
 
@@ -33,10 +35,30 @@ __all__ = [
 _LOGGER = logging.getLogger(__name__)
 
 
+class ExperimentParams(dict):
+    """Keyword arguments expected in the `experiment_params`
+    dict of an ACTorch configuration file.
+
+    """
+
+    def __init__(self, **run_kwargs: "Any") -> "None":
+        """Initialize the object.
+
+        Parameters
+        ----------
+        run_kwargs:
+            The keyword arguments to pass to `ray.tune.run`
+            (see https://docs.ray.io/en/latest/tune/api_docs/execution.html#tune-run).
+
+        """
+        super().__init__(**run_kwargs)
+
+
 class Run:
     """Run experiment."""
 
-    def main(self, args: "Namespace") -> "tune.ExperimentAnalysis":
+    @classmethod
+    def main(cls, args: "Namespace") -> "tune.ExperimentAnalysis":  # noqa: C901
         """Script entry point.
 
         Parameters
@@ -56,9 +78,6 @@ class Run:
             If the configuration file is invalid.
 
         """
-        if args.suppress_warnings:
-            # Suppress warnings across all subprocesses
-            os.environ["PYTHONWARNINGS"] = "ignore"
         config_filepath = os.path.realpath(args.config_filepath)
         experiment_name = os.path.splitext(os.path.basename(config_filepath))[0]
         config = import_module(config_filepath)
@@ -66,13 +85,13 @@ class Run:
             raise ValueError(
                 "Invalid configuration file: `experiment_params` undefined"
             )
-        experiment_params = config.experiment_params
+        experiment_params = ExperimentParams(**config.experiment_params)
 
         if "name" not in experiment_params:
             # Set run name
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             with open(config_filepath, "rb") as f:
-                md5_hash = f"md5{hashlib.md5(f.read()).hexdigest()}"
+                md5_hash = f"md5-{hashlib.md5(f.read()).hexdigest()}"
             run_name = os.path.join(
                 experiment_name, f"{current_time}_{socket.gethostname()}_{md5_hash}"
             )
@@ -113,11 +132,11 @@ class Run:
         callbacks = experiment_params.get("callbacks", [])
         metric = experiment_params.get("metric")
         if not any(
-            isinstance(c, tune.progress_reporter.TrialProgressCallback)
-            for c in callbacks
+            isinstance(callback, tune.progress_reporter.TrialProgressCallback)
+            for callback in callbacks
         ):
             callbacks.append(TrialProgressCallback(metric=metric))
-        if not any(isinstance(c, tune.logger.TrialProgressCallback) for c in callbacks):
+        if not any(isinstance(c, tune.logger.TBXLoggerCallback) for c in callbacks):
             callbacks.append(TBXLoggerCallback())
         experiment_params["callbacks"] = callbacks
 
@@ -151,9 +170,20 @@ class Run:
         except Exception as e:
             _LOGGER.warning(f"Could not log system information: {e}")
 
-        analysis = tune.run(**experiment_params)
-        ray.shutdown()
-        return analysis
+        try:
+            analysis = tune.run(**experiment_params)
+            return analysis
+        finally:
+            cls._cleanup()
+
+            @ray.remote
+            def remote_cleanup():
+                cls._cleanup()
+
+            for v in ray.cluster_resources():
+                if v.startswith("node:"):
+                    ray.get(remote_cleanup.options(resources={v: 1}).remote())
+            ray.shutdown()
 
     @classmethod
     def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
@@ -174,23 +204,26 @@ class Run:
         parser.add_argument(
             "config_filepath",
             help=(
-                "absolute or relative path to the configuration file, i.e. "
-                "a Python script that defines an `experiment_params` dict "
+                "absolute or relative path to the configuration file, i.e. a "
+                "Python script that defines a dict named `experiment_params` "
                 "with keyword arguments to pass to `ray.tune.run` "
                 "(see https://docs.ray.io/en/latest/tune/api_docs/execution.html#tune-run)"
             ),
             metavar="config-file",
         )
-        parser.add_argument(
-            "-s",
-            "--suppress-warnings",
-            action="store_true",
-            help="suppress warnings",
-        )
         return parser
 
-    def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}()"
+    @classmethod
+    def _cleanup(cls) -> "None":
+        # Workaround to kill all Ray processes spawned by this session
+        for process in psutil.Process(os.getpid()).children(recursive=True):
+            if process.name() == "ray::IDLE" or (
+                process.name().startswith("ray::") and "init" in process.name()
+            ):
+                process.kill()
+        for process in psutil.process_iter():
+            if process.name().startswith("ray::") and "init" in process.name():
+                process.kill()
 
 
 def _main() -> "None":
@@ -198,8 +231,7 @@ def _main() -> "None":
         parser = Run.get_default_parser()
         args = parser.parse_args()
         print("------------------- Start ------------------")
-        run = Run()
-        run.main(args)
+        Run.main(args)
         print("------------------- Done -------------------")
     except KeyboardInterrupt:
         print("---- Exiting early (Keyboard Interrupt) ----")

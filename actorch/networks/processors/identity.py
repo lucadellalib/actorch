@@ -6,7 +6,6 @@
 
 from typing import Tuple
 
-import torch
 from torch import Size, Tensor
 
 from actorch.networks.processors.processor import Processor
@@ -20,6 +19,7 @@ __all__ = [
 class Identity(Processor):
     """Return a tensor unaltered."""
 
+    # override
     def __init__(self, shape: "Tuple[int, ...]") -> "None":
         """Initialize the object.
 
@@ -29,18 +29,28 @@ class Identity(Processor):
             The input/output event shape.
 
         """
-        self.shape = torch.Size(shape)
+        self.shape = Size(shape)
+        super().__init__()
 
+    # override
     @property
     def in_shape(self) -> "Size":
         return self.shape
 
+    # override
     @property
     def out_shape(self) -> "Size":
         return self.shape
 
-    def __call__(self, input: "Tensor") -> "Tensor":
+    # override
+    @property
+    def inv(self) -> "Identity":
+        return Identity(self.shape)
+
+    # override
+    def _forward(self, input: "Tensor") -> "Tensor":
         return input
 
+    # override
     def __repr__(self) -> "str":
-        return f"{self.__class__.__name__}" f"(shape: {self.shape})"
+        return f"{type(self).__name__}(shape: {self.shape})"

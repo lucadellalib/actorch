@@ -18,14 +18,14 @@ from ray.actor import ActorHandle
 from ray.tune import PlacementGroupFactory
 from ray.tune.integration.torch import logger_creator
 from ray.tune.resources import Resources
-from ray.tune.result import RESULT_DUPLICATE
+from ray.tune.result import AUTO_RESULT_KEYS, DONE, TRIAL_ID
 from ray.tune.syncer import NodeSyncer, get_node_syncer
 from ray.tune.trainable import Trainable
 from ray.tune.utils.placement_groups import resource_dict_to_pg_factory
 from ray.tune.utils.trainable import TrainableUtil
 from torch import distributed as dist
 
-from actorch.distributed.distributed_trainable import DistributedTrainable
+from actorch.distributed.distributed_trainable import DistributedTrainable, Tunable
 
 
 __all__ = [
@@ -52,20 +52,25 @@ class SyncDistributedTrainable(DistributedTrainable):
 
     """
 
+    _REDUCTION_MODES = ["mean", "sum", "single"]
+
+    # override
     class Config(dict):
+        """Keyword arguments expected in the configuration received by `setup`."""
+
         def __init__(
             self,
-            num_workers: "int" = 1,
-            num_cpus_per_worker: "float" = 1.0,
-            num_gpus_per_worker: "float" = 0.0,
-            extra_resources_per_worker: "Optional[Dict[str, Any]]" = None,
-            placement_strategy: "str" = "PACK",
-            reduction_mode: "str" = "mean",
-            backend: "Optional[str]" = None,
-            timeout_s: "float" = 1800.0,
-            node_syncer_builder: "Optional[Callable[..., NodeSyncer]]" = None,
-            node_syncer_config: "Optional[Dict[str, Any]]" = None,
-            worker_init_fn: "Optional[Callable[[], None]]" = None,
+            num_workers: "Tunable[int]" = 1,
+            num_cpus_per_worker: "Tunable[float]" = 1.0,
+            num_gpus_per_worker: "Tunable[float]" = 0.0,
+            extra_resources_per_worker: "Tunable[Optional[Dict[str, Any]]]" = None,
+            placement_strategy: "Tunable[str]" = "PACK",
+            reduction_mode: "Tunable[str]" = "mean",
+            backend: "Tunable[Optional[str]]" = None,
+            timeout_s: "Tunable[float]" = 1800.0,
+            node_syncer_builder: "Tunable[Optional[Callable[..., NodeSyncer]]]" = None,
+            node_syncer_config: "Tunable[Optional[Dict[str, Any]]]" = None,
+            worker_init_fn: "Tunable[Optional[Callable[[], None]]]" = None,
             **worker_config: "Any",
         ) -> "None":
             """Initialize the object.
@@ -106,7 +111,7 @@ class SyncDistributedTrainable(DistributedTrainable):
                 from a configuration and returns a node syncer that synchronizes log
                 directories of workers running on remote nodes.
                 If all workers run on the same node, synchronization is not performed.
-                Default to ``get_node_syncer``.
+                Default to ``ray.tune.syncer.get_node_syncer``.
             node_syncer_config:
                 The node syncer configuration.
                 Arguments `local_dir` and `remote_dir` are set internally.
@@ -120,48 +125,18 @@ class SyncDistributedTrainable(DistributedTrainable):
                 The worker configuration.
                 Default to ``{}``.
 
-            Raises
-            ------
-            ValueError
-                If an invalid argument value is given.
-
             """
-            if num_workers < 1 or not float(num_workers).is_integer():
-                raise ValueError(
-                    f"`num_workers` ({num_workers}) must be in the integer interval [1, inf)"
-                )
-            num_workers = int(num_workers)
-            if num_cpus_per_worker < 1.0:
-                raise ValueError(
-                    f"`num_cpus_per_worker` ({num_cpus_per_worker}) must be in the interval [1, inf)"
-                )
-            if num_gpus_per_worker < 0.0:
-                raise ValueError(
-                    f"`num_gpus_per_worker` ({num_gpus_per_worker}) must be in the interval [0, inf)"
-                )
-            reduction_modes = ["mean", "sum", "single"]
-            if reduction_mode not in reduction_modes:
-                raise ValueError(
-                    f"`reduction_mode` ({reduction_mode}) must be one of {reduction_modes}"
-                )
-            backend = backend or ("nccl" if num_gpus_per_worker > 0 else "gloo")
-            if timeout_s <= 0:
-                raise ValueError(
-                    f"`timeout_s` ({timeout_s}) must be in the interval (0, inf)"
-                )
             super().__init__(
                 num_workers=num_workers,
                 num_cpus_per_worker=num_cpus_per_worker,
                 num_gpus_per_worker=num_gpus_per_worker,
-                extra_resources_per_worker=extra_resources_per_worker or {},
+                extra_resources_per_worker=extra_resources_per_worker,
                 placement_strategy=placement_strategy,
                 reduction_mode=reduction_mode,
                 backend=backend,
                 timeout_s=timeout_s,
-                node_syncer_builder=node_syncer_builder or get_node_syncer,
-                node_syncer_config=node_syncer_config
-                if node_syncer_config is not None
-                else ({"sync_function": True} if node_syncer_builder is None else {}),
+                node_syncer_builder=node_syncer_builder,
+                node_syncer_config=node_syncer_config,
                 worker_init_fn=worker_init_fn,
                 worker_config=worker_config,
             )
@@ -181,20 +156,31 @@ class SyncDistributedTrainable(DistributedTrainable):
             default_resource_request = resource_dict_to_pg_factory(
                 default_resource_request
             )
-        default_resources = (
+        default_resources: "Dict[str, float]" = (
             default_resource_request.required_resources
             if default_resource_request
             else {}
         )
         # Define resources per worker
         num_workers = config["num_workers"]
-        num_cpus_per_worker = max(
-            config["num_cpus_per_worker"], default_resources.pop("CPU", 1)
-        )
-        num_gpus_per_worker = max(
-            config["num_gpus_per_worker"], default_resources.pop("GPU", 0)
-        )
-        extra_resources_per_worker = config["extra_resources_per_worker"]
+        if num_workers < 1 or not float(num_workers).is_integer():
+            raise ValueError(
+                f"`num_workers` ({num_workers}) must be in the integer interval [1, inf)"
+            )
+        num_workers = int(num_workers)
+        num_cpus_per_worker = config["num_cpus_per_worker"]
+        if num_cpus_per_worker < 1.0:
+            raise ValueError(
+                f"`num_cpus_per_worker` ({num_cpus_per_worker}) must be in the interval [1, inf)"
+            )
+        num_cpus_per_worker = max(num_cpus_per_worker, default_resources.pop("CPU", 1))
+        num_gpus_per_worker = config["num_gpus_per_worker"]
+        if num_gpus_per_worker < 0.0:
+            raise ValueError(
+                f"`num_gpus_per_worker` ({num_gpus_per_worker}) must be in the interval [0, inf)"
+            )
+        num_gpus_per_worker = max(num_gpus_per_worker, default_resources.pop("GPU", 0))
+        extra_resources_per_worker = config["extra_resources_per_worker"] or {}
         for k, v in extra_resources_per_worker:
             extra_resources_per_worker[k] = max(v, default_resources.pop(k, 0))
         placement_strategy = config["placement_strategy"]
@@ -239,15 +225,30 @@ class SyncDistributedTrainable(DistributedTrainable):
         self.num_workers = config["num_workers"]
         self.num_cpus_per_worker = config["num_cpus_per_worker"]
         self.num_gpus_per_worker = config["num_gpus_per_worker"]
-        self.extra_resources_per_worker = config["extra_resources_per_worker"]
+        self.extra_resources_per_worker = config["extra_resources_per_worker"] or {}
         self.reduction_mode = config["reduction_mode"]
-        self.backend = config["backend"]
+        if self.reduction_mode not in self._REDUCTION_MODES:
+            raise ValueError(
+                f"`reduction_mode` ({self.reduction_mode}) must be one of {self._REDUCTION_MODES}"
+            )
+        self.backend = config["backend"] or (
+            "nccl" if self.num_gpus_per_worker > 0 else "gloo"
+        )
         self.timeout_s = config["timeout_s"]
-        self.node_syncer_builder = config["node_syncer_builder"]
-        self.node_syncer_config = config["node_syncer_config"]
+        if self.timeout_s <= 0:
+            raise ValueError(
+                f"`timeout_s` ({self.timeout_s}) must be in the interval (0, inf)"
+            )
+        self.node_syncer_builder = config["node_syncer_builder"] or get_node_syncer
+        self.node_syncer_config = (
+            config["node_syncer_config"]
+            if config["node_syncer_config"] is not None
+            else (
+                {"sync_function": True} if config["node_syncer_builder"] is None else {}
+            )
+        )
         self.worker_init_fn = config["worker_init_fn"]
         self.worker_config = config["worker_config"]
-        self._has_finished = False
 
         # Setup options
         options = {
@@ -296,8 +297,21 @@ class SyncDistributedTrainable(DistributedTrainable):
 
         self.config = deepcopy(new_config)
         self.reduction_mode = new_config["reduction_mode"]
+        if self.reduction_mode not in self._REDUCTION_MODES:
+            raise ValueError(
+                f"`reduction_mode` ({self.reduction_mode}) must be one of {self._REDUCTION_MODES}"
+            )
+        self.node_syncer_builder = new_config["node_syncer_builder"] or get_node_syncer
+        self.node_syncer_config = (
+            new_config["node_syncer_config"]
+            if new_config["node_syncer_config"] is not None
+            else (
+                {"sync_function": True}
+                if new_config["node_syncer_builder"] is None
+                else {}
+            )
+        )
         self.worker_config = new_config["worker_config"]
-        self._has_finished = False
 
         if self._node_syncer:
             self._node_syncer = self.node_syncer_builder(
@@ -316,13 +330,11 @@ class SyncDistributedTrainable(DistributedTrainable):
 
     # override
     def step(self) -> "Dict[str, Any]":
-        if self._has_finished:
-            raise RuntimeError("Training has already finished")
-        result = self._reduce(
-            ray.get([worker.step.remote() for worker in self._workers])
-        )
-        if RESULT_DUPLICATE in result:
-            self._has_finished = True
+        results = ray.get([worker.train.remote() for worker in self._workers])
+        for result in results:
+            for key in [*AUTO_RESULT_KEYS, TRIAL_ID, DONE, "perf"]:
+                result.pop(key, None)
+        result = self._reduce(results) if len(results) > 1 else results[0]
         return result
 
     # override
@@ -432,23 +444,31 @@ class SyncDistributedTrainable(DistributedTrainable):
         if self.reduction_mode == "single":
             return reduced
         for k, v in reduced.items():
-            value = None
-            if isinstance(v, float):
-                value = np.asarray(
-                    [v] + [result[k] for result in results[1:] if k in result]
+            if isinstance(v, dict):
+                reduced[k] = self._reduce(
+                    [result[k] for result in results if k in result]
                 )
+                continue
             if isinstance(v, np.ndarray):
-                arrays = [v] + [result[k] for result in results[1:] if k in result]
-                value = np.concatenate(arrays)
-            if isinstance(v, torch.Tensor):
-                tensors = [v] + [result[k] for result in results[1:] if k in result]
-                value = torch.cat(tensors).numpy()
-            if value is not None:
+                value = np.concatenate([result[k] for result in results if k in result])
+            elif isinstance(v, torch.Tensor):
+                value = torch.cat(
+                    [result[k] for result in results if k in result]
+                ).numpy()
+            else:
+                value = np.asarray([result[k] for result in results if k in result])
+            try:
                 reduced[k] = (
-                    value.mean(axis=0)
-                    if self.reduction_mode == "mean"
-                    else value.sum(axis=0)
+                    value.all()
+                    if value.dtype == bool
+                    else (
+                        value.mean(axis=0)
+                        if self.reduction_mode == "mean"
+                        else value.sum(axis=0)
+                    )
                 )
+            except Exception:
+                pass
         return reduced
 
     @classmethod

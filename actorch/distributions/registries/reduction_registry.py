@@ -8,7 +8,7 @@
 """
 
 from collections import defaultdict
-from typing import Any, Callable, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 from torch import Tensor
@@ -30,14 +30,16 @@ __all__ = [
 
 _REDUCTION_REGISTRY = defaultdict(list)
 
-_REDUCTION_MEMOIZE = {}
+_REDUCTION_MEMOIZE: "Dict[Tuple[Type[ds.Distribution], Type[ds.Transform]], List[Tuple[Optional[Callable[[ds.Distribution, ds.Transform], bool]], Callable[..., ds.Distribution]]]]" = (
+    {}
+)
 
 
 def register_reduction(
     distribution_cls: "Type[ds.Distribution]",
     transform_cls: "Type[ds.Transform]",
     condition_fn: "Optional[Callable[[ds.Distribution, ds.Transform], bool]]" = None,
-) -> "Callable":
+) -> "Callable[[Callable[..., ds.Distribution]], Callable[..., ds.Distribution]]":
     """Decorator that registers a reduction function that maps a distribution-transform
     pair to its corresponding reduced distribution. Optionally, a condition function
     can be given, that checks whether the reduction function is applicable to the
@@ -77,7 +79,7 @@ def register_reduction(
             f"`transform_cls` ({transform_cls}) must be a subclass of `torch.distributions.Transform`"
         )
 
-    def registration_fn(
+    def register(
         reduction_fn: "Callable[..., ds.Distribution]",
     ) -> "Callable[..., ds.Distribution]":
         _REDUCTION_REGISTRY[distribution_cls, transform_cls].append(
@@ -86,7 +88,7 @@ def register_reduction(
         _REDUCTION_MEMOIZE.clear()  # Reset since lookup order may have changed
         return reduction_fn
 
-    return registration_fn
+    return register
 
 
 def reduce(
@@ -95,9 +97,9 @@ def reduce(
     """Reduce a distribution based on the applied transform (find the most specific
     approximate match, assuming single inheritance).
 
-    For example, if the distribution is a `Normal(mu, sigma)` and the applied transform
-    is an `AffineTransform(loc, scale)`, then the resulting reduced distribution is a
-    `Normal(loc + scale * mu, scale * sigma)`.
+    For example, if the distribution is a ``Normal(mu, sigma)`` and the applied transform
+    is an ``AffineTransform(loc, scale)``, then the resulting reduced distribution is a
+    ``Normal(loc + scale * mu, scale * sigma)``.
 
     Returns
     -------
@@ -110,9 +112,9 @@ def reduce(
 
     Warnings
     --------
-    Reducing `actorch.distributions.CatDistribution` instances whose base distributions
-    are (possibly wrapped) `actorch.distributions.MaskedDistribution` instances might
-    lead to incorrect results.
+    Reducing an `actorch.distributions.CatDistribution` whose base distributions
+    are (possibly wrapped) `actorch.distributions.MaskedDistribution` might lead
+    to incorrect results.
 
     """
     try:
@@ -129,7 +131,7 @@ def reduce(
 def _dispatch_reduction(
     distribution_cls: "Type[ds.Distribution]",
     transform_cls: "Type[ds.Transform]",
-) -> "List[Tuple[Callable, Callable]]":
+) -> "List[Tuple[Optional[Callable[[ds.Distribution, ds.Transform], bool]], Callable[..., ds.Distribution]]]":
     matches = [
         ds.kl._Match(d, t)
         for d, t in _REDUCTION_REGISTRY
@@ -141,8 +143,43 @@ def _dispatch_reduction(
     return reductions
 
 
+def _is_degenerate_affine(
+    transform: "ds.Transform",
+    shape: "Tuple[int, ...]",
+) -> "bool":
+    if not is_affine(transform):
+        return False
+    shift = transform(torch.zeros(shape))
+    scale = transform(torch.ones(shape)) - shift
+    return (scale == 0.0).all()
+
+
 def _is_identical(input: "Tensor", dim: "int" = 0) -> "bool":
     return (input == input.select(dim, 0).unsqueeze(dim)).all(dim=dim).all()
+
+
+#####################################################################################################
+# Degenerate affine transform
+#####################################################################################################
+
+
+@register_reduction(
+    ds.Distribution,
+    ds.Transform,
+    lambda d, t: _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
+def _reduction_distribution_degenerate_affine(
+    distribution: "ds.Distribution", transform: "ds.Transform", **kwargs: "Any"
+) -> "Union[Deterministic, MaskedDistribution]":
+    shift = transform(torch.zeros_like(distribution.sample()))
+    validate_args = kwargs.get("validate_args", distribution._validate_args)
+    base_distribution = Deterministic(shift, validate_args)
+    mask = getattr(transform, "transformed_mask", torch.as_tensor(True))
+    return (
+        base_distribution
+        if mask.all()
+        else MaskedDistribution(base_distribution, mask, validate_args)
+    )
 
 
 #####################################################################################################
@@ -171,7 +208,7 @@ def _reduction_finite_support_univariate(
     **kwargs: "Any",
 ) -> "Finite":
     support = distribution.enumerate_support()
-    logits = distribution.log_prob(support).movedim(-1, 0)
+    logits = distribution.log_prob(support).movedim(0, -1)
     if isinstance(transform, ds.AffineTransform):
         transform.loc = torch.as_tensor(
             transform.loc, device=getattr(transform.scale, "device", None)
@@ -186,7 +223,7 @@ def _reduction_finite_support_univariate(
         transform.scale = transform.scale[
             (...,) + (None,) * (logits.ndim - transform.scale.ndim)
         ].expand_as(logits)
-    atoms = transform(support.movedim(-1, 0))
+    atoms = transform(support.movedim(0, -1))
     validate_args = kwargs.get("validate_args", distribution._validate_args)
     return Finite(logits=logits, atoms=atoms, validate_args=validate_args)
 
@@ -237,10 +274,30 @@ def _reduction_deterministic_transform(
 #####################################################################################################
 
 
-@register_reduction(ds.Cauchy, ds.Transform, lambda d, t: is_affine(t))
-@register_reduction(ds.Gumbel, ds.Transform, lambda d, t: is_affine(t))
-@register_reduction(ds.Laplace, ds.Transform, lambda d, t: is_affine(t))
-@register_reduction(ds.Normal, ds.Transform, lambda d, t: is_affine(t))
+@register_reduction(
+    ds.Cauchy,
+    ds.Transform,
+    lambda d, t: is_affine(t)
+    and not _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
+@register_reduction(
+    ds.Gumbel,
+    ds.Transform,
+    lambda d, t: is_affine(t)
+    and not _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
+@register_reduction(
+    ds.Laplace,
+    ds.Transform,
+    lambda d, t: is_affine(t)
+    and not _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
+@register_reduction(
+    ds.Normal,
+    ds.Transform,
+    lambda d, t: is_affine(t)
+    and not _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
 def _reduction_loc_scale_affine(
     distribution: "Union[ds.Cauchy, ds.Gumbel, ds.Laplace, ds.Normal]",
     transform: "ds.Transform",
@@ -259,7 +316,12 @@ def _reduction_loc_scale_affine(
     )
 
 
-@register_reduction(ds.MixtureSameFamily, ds.Transform, lambda d, t: is_affine(t))
+@register_reduction(
+    ds.MixtureSameFamily,
+    ds.Transform,
+    lambda d, t: is_affine(t)
+    and not _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
 def _reduction_mixture_same_family_affine(
     distribution: "ds.MixtureSameFamily",
     transform: "ds.Transform",
@@ -320,7 +382,12 @@ def _reduction_multivariate_normal_affine_loc_scale(
     )
 
 
-@register_reduction(ds.StudentT, ds.Transform, lambda d, t: is_affine(t))
+@register_reduction(
+    ds.StudentT,
+    ds.Transform,
+    lambda d, t: is_affine(t)
+    and not _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
 def _reduction_student_t_affine(
     distribution: "ds.StudentT", transform: "ds.Transform", **kwargs: "Any"
 ) -> "Union[ds.StudentT, MaskedDistribution]":
@@ -337,7 +404,12 @@ def _reduction_student_t_affine(
     )
 
 
-@register_reduction(ds.Uniform, ds.Transform, lambda d, t: is_affine(t))
+@register_reduction(
+    ds.Uniform,
+    ds.Transform,
+    lambda d, t: is_affine(t)
+    and not _is_degenerate_affine(t, d.batch_shape + d.event_shape),
+)
 def _reduction_uniform_affine(
     distribution: "ds.Uniform", transform: "ds.Transform", **kwargs: "Any"
 ) -> "Union[ds.Uniform, MaskedDistribution]":
@@ -682,7 +754,7 @@ def _reduction_masked_batch_transform(
     return reduce(distribution.base_dist, transform, **kwargs)
 
 
-# Avoid matching subclasses of `torch.distributions.TransformedDistribution` such as `Gumbel`
+# Avoid matching subclasses of torch.distributions.TransformedDistribution such as Gumbel
 @register_reduction(
     ds.TransformedDistribution,
     ds.Transform,

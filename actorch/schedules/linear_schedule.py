@@ -20,6 +20,16 @@ __all__ = [
 class LinearSchedule(Schedule):
     """Linear schedule."""
 
+    _STATE_VARS = Schedule._STATE_VARS + [
+        "initial_value",
+        "final_value",
+        "num_timesteps",
+        "_delta",
+        "_is_increasing",
+        "_value",
+    ]  # override
+
+    # override
     def __init__(
         self,
         initial_value: "Union[int, float, Sequence[Union[int, float]], ndarray]",
@@ -82,13 +92,15 @@ class LinearSchedule(Schedule):
         max_value = self._value.clip(min=self.final_value)
         self._value = np.where(self._is_increasing, min_value, max_value)
 
+    # override
     def __call__(self) -> "Union[int, float, ndarray]":
         value = np.array(self._value)  # Copy
         return value if self.batch_size else value.item()
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"(initial_value: {self.initial_value}, "
             f"final_value: {self.final_value}, "
             f"num_timesteps: {self.num_timesteps})"

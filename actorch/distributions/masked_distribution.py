@@ -8,7 +8,7 @@ from typing import Optional, Union
 
 import torch
 from torch import Size, Tensor
-from torch.distributions import Distribution, constraints, utils
+from torch.distributions import Distribution, constraints
 from torch.distributions.constraints import Constraint
 
 from actorch.distributions.utils import is_discrete
@@ -26,6 +26,7 @@ class MaskedDistribution(Distribution):
         "mask": constraints.boolean,
     }
 
+    # override
     def __init__(
         self,
         base_distribution: "Distribution",
@@ -37,7 +38,7 @@ class MaskedDistribution(Distribution):
         Parameters
         ----------
         base_distribution:
-            The base distribution.
+            The base distribution to mask.
         mask:
             The boolean scalar/tensor indicating which batch
             elements are valid (True) and which are not (False).
@@ -62,7 +63,7 @@ class MaskedDistribution(Distribution):
     # override
     def expand(
         self,
-        batch_shape: "Size" = torch.Size(),
+        batch_shape: "Size" = torch.Size(),  # noqa: B008
         _instance: "Optional[MaskedDistribution]" = None,
     ) -> "MaskedDistribution":
         new = self._get_checked_instance(MaskedDistribution, _instance)
@@ -72,7 +73,7 @@ class MaskedDistribution(Distribution):
         new._validate_args = self._validate_args
         return new
 
-    @utils.lazy_property
+    @property
     def is_discrete(self) -> "bool":
         """Whether the distribution is discrete.
 
@@ -92,6 +93,11 @@ class MaskedDistribution(Distribution):
     @property
     def mean(self) -> "Tensor":
         return self.base_dist.mean
+
+    # override
+    @property
+    def mode(self) -> "Tensor":
+        return self.base_dist.mode
 
     # override
     @property
@@ -135,9 +141,10 @@ class MaskedDistribution(Distribution):
         result = self.base_dist.entropy()
         return result.masked_fill(~self.mask, 0.0)
 
+    # override
     def __repr__(self) -> "str":
         return (
-            f"{self.__class__.__name__}"
+            f"{type(self).__name__}"
             f"({self.base_dist}, "
             f"mask: {self.mask if self.mask.numel() == 1 else self.mask.shape})"
         )

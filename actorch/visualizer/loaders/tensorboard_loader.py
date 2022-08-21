@@ -23,18 +23,22 @@ class TensorBoardLoader(Loader):
     """Load progress data from TensorBoard progress files."""
 
     # override
+    @classmethod
     def load(
-        self,
+        cls,
         input_dirpath: "str",
         search_pattern: "str" = ".*",
         exclude_names: "Optional[Sequence[str]]" = None,
         **kwargs: "Any",
     ) -> "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]":
-        search_pattern = f"(?=.*events\.out\.tfevents.*)(?={search_pattern})"
+        search_pattern = (
+            f"(?=.*events\\.out\\.tfevents.*)(?={search_pattern})"  # noqa: W605
+        )
         return super().load(input_dirpath, search_pattern, exclude_names, **kwargs)
 
     # override
-    def _load_data(self, filepath: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
+    @classmethod
+    def _load_data(cls, filepath: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
         data = {}
         event_accumulator = EventAccumulator(filepath).Reload()
         reference_x = np.empty(0)  # Series with maximum length
