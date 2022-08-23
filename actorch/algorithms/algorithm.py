@@ -1,5 +1,17 @@
 # ==============================================================================
-# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# Copyright 2022 Luca Della Libera.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # ==============================================================================
 
 """Deep reinforcement learning algorithm."""
@@ -12,7 +24,18 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import deque
 from copy import deepcopy
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 import numpy as np
 import ray
@@ -22,7 +45,8 @@ from gym import Env, spaces
 from numpy import ndarray
 from ray.train.session import world_rank
 from ray.train.torch import accelerate, prepare_data_loader
-from ray.tune import Trainable, result as tune_result
+from ray.tune import Trainable
+from ray.tune import result as tune_result
 from ray.tune.sample import Domain
 from ray.tune.syncer import NodeSyncer
 from ray.tune.trial import ExportFormat
@@ -34,13 +58,30 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from actorch.agents import Agent, StochasticAgent
-from actorch.algorithms.utils import count_params, init_mock_train_session, prepare_model
+from actorch.algorithms.utils import (
+    count_params,
+    init_mock_train_session,
+    prepare_model,
+)
 from actorch.buffers import Buffer, UniformBuffer
 from actorch.datasets import BufferDataset
 from actorch.distributed import SyncDistributedTrainable
-from actorch.envs import BatchedEnv, BatchedFlattenObservation, BatchedUnflattenAction, SerialBatchedEnv
+from actorch.envs import (
+    BatchedEnv,
+    BatchedFlattenObservation,
+    BatchedUnflattenAction,
+    SerialBatchedEnv,
+)
 from actorch.models import FCNet, Model
-from actorch.networks import DistributionParametrization, Identity, Independent, NormalizingFlow, OneHotEncode, PolicyNetwork, Processor
+from actorch.networks import (
+    DistributionParametrization,
+    Identity,
+    Independent,
+    NormalizingFlow,
+    OneHotEncode,
+    PolicyNetwork,
+    Processor,
+)
 from actorch.samplers import Sampler
 from actorch.schedules import ConstantSchedule, Schedule
 from actorch.utils import FutureRef, singledispatchmethod
@@ -76,6 +117,7 @@ class Algorithm(ABC, Trainable):
 
     class Config(dict):
         """Keyword arguments expected in the configuration received by `setup`."""
+
         def __init__(
             self,
             train_env_builder: "Tunable[RefOrFutureRef[Callable[..., Union[Env, BatchedEnv]]]]",
@@ -84,8 +126,8 @@ class Algorithm(ABC, Trainable):
             train_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             train_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             train_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            train_num_timesteps: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            train_num_episodes: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            train_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            train_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             eval_interval_iterations: "Tunable[RefOrFutureRef[Optional[int]]]" = 1,
             eval_env_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Union[Env, BatchedEnv]]]]]" = None,
             eval_env_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -93,8 +135,8 @@ class Algorithm(ABC, Trainable):
             eval_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             eval_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             eval_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            eval_num_timesteps: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            eval_num_episodes: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             policy_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             policy_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -157,17 +199,17 @@ class Algorithm(ABC, Trainable):
                 Arguments `env` and `agent` are set internally.
                 Default to ``{"callbacks": []}`` if
                 `train_sampler_builder` is None, ``{}`` otherwise.
-            train_num_timesteps:
-                The schedule for the number of timesteps to sample
-                from the training environment. If a number, it is
-                wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `train_num_episodes` is given.
-            train_num_episodes:
-                The schedule for the number of episodes to sample
-                from the training environment. If a number, it is
-                wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `train_num_timesteps` is given.
-                Default to 10 if `train_num_timesteps` is None.
+            train_num_timesteps_per_iteration:
+                The schedule for the number of timesteps to sample from
+                the training environment at each training iteration.
+                If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
+                Must be None if `train_num_episodes_per_iteration` is given.
+            train_num_episodes_per_iteration:
+                The schedule for the number of episodes to sample from
+                the training environment at each training iteration.
+                If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
+                Must be None if `train_num_timesteps_per_iteration` is given.
+                Default to 1 if `train_num_timesteps_per_iteration` is None.
             eval_interval_iterations:
                 Run evaluation every `eval_interval_iterations` training
                 iterations. Set to None to skip evaluation.
@@ -203,17 +245,17 @@ class Algorithm(ABC, Trainable):
                 Arguments `env` and `agent` are set internally.
                 Default to ``{"callbacks": []}`` if
                 `eval_sampler_builder` is None, ``{}`` otherwise.
-            eval_num_timesteps:
-                The schedule for the number of timesteps to sample
-                from the evaluation environment. If a number, it is
-                wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `eval_num_episodes` is given.
-            eval_num_episodes:
-                The schedule for the number of episodes to sample
-                from the evaluation environment. If a number, it is
-                wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `eval_num_timesteps` is given.
-                Default to 10 if `eval_num_timesteps` is None.
+            eval_num_timesteps_per_iteration:
+                The schedule for the number of timesteps to sample from
+                the evaluation environment at each training iteration.
+                If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
+                Must be None if `eval_num_episodes_per_iteration` is given.
+            eval_num_episodes_per_iteration:
+                The schedule for the number of episodes to sample from
+                the evaluation environment at each training iteration.
+                If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
+                Must be None if `eval_num_timesteps_per_iteration` is given.
+                Default to 1 if `eval_num_timesteps_per_iteration` is None.
             policy_network_preprocessors:
                 The policy network preprocessors, i.e. a dict that maps
                 names of the policy network input modalities to their
@@ -373,8 +415,8 @@ class Algorithm(ABC, Trainable):
                 train_agent_config=train_agent_config,
                 train_sampler_builder=train_sampler_builder,
                 train_sampler_config=train_sampler_config,
-                train_num_timesteps=train_num_timesteps,
-                train_num_episodes=train_num_episodes,
+                train_num_timesteps_per_iteration=train_num_timesteps_per_iteration,
+                train_num_episodes_per_iteration=train_num_episodes_per_iteration,
                 eval_interval_iterations=eval_interval_iterations,
                 eval_env_builder=eval_env_builder,
                 eval_env_config=eval_env_config,
@@ -382,8 +424,8 @@ class Algorithm(ABC, Trainable):
                 eval_agent_config=eval_agent_config,
                 eval_sampler_builder=eval_sampler_builder,
                 eval_sampler_config=eval_sampler_config,
-                eval_num_timesteps=eval_num_timesteps,
-                eval_num_episodes=eval_num_episodes,
+                eval_num_timesteps_per_iteration=eval_num_timesteps_per_iteration,
+                eval_num_episodes_per_iteration=eval_num_episodes_per_iteration,
                 policy_network_preprocessors=policy_network_preprocessors,
                 policy_network_model_builder=policy_network_model_builder,
                 policy_network_model_config=policy_network_model_config,
@@ -429,7 +471,10 @@ class Algorithm(ABC, Trainable):
         self._train_env = self._build_train_env()
         self._eval_env = None
         if self.eval_interval_iterations is not None:
-            if self.eval_interval_iterations < 1 or not float(self.eval_interval_iterations).is_integer():
+            if (
+                self.eval_interval_iterations < 1
+                or not float(self.eval_interval_iterations).is_integer()
+            ):
                 raise ValueError(
                     f"`eval_interval_iterations` ({self.eval_interval_iterations}) "
                     f"must be in the integer interval [1, inf)"
@@ -455,7 +500,10 @@ class Algorithm(ABC, Trainable):
 
         self._dataloader = self._build_dataloader()
 
-        if self.cumreward_window_size < 1 or not float(self.cumreward_window_size).is_integer():
+        if (
+            self.cumreward_window_size < 1
+            or not float(self.cumreward_window_size).is_integer()
+        ):
             raise ValueError(
                 f"`cumreward_window_size` ({self.cumreward_window_size}) "
                 f"must be in the integer interval [1, inf)"
@@ -470,11 +518,15 @@ class Algorithm(ABC, Trainable):
             self._profiler = self._build_profiler()
 
         if not isinstance(self.enable_amp, dict):
-            self.enable_amp = {
-                "enabled": True,
-                "dtype": torch.float16,
-                "cache_enabled": True,
-            } if self.enable_amp else {"enabled": False}
+            self.enable_amp = (
+                {
+                    "enabled": True,
+                    "dtype": torch.float16,
+                    "cache_enabled": True,
+                }
+                if self.enable_amp
+                else {"enabled": False}
+            )
 
     # override
     def reset_config(self, new_config: "Dict[str, Any]") -> "bool":
@@ -536,28 +588,42 @@ class Algorithm(ABC, Trainable):
             exported[ExportFormat.CHECKPOINT] = checkpoint_filepath
         if ExportFormat.MODEL in export_formats:
             model_filepath = os.path.join(export_dir, "model.pkl")
-            torch.save(self._policy_network, model_filepath, pickle_module=ray.cloudpickle)
+            torch.save(
+                self._policy_network, model_filepath, pickle_module=ray.cloudpickle
+            )
             exported[ExportFormat.MODEL] = model_filepath
         return exported
 
     @property
     def _checkpoint(self) -> "Dict[str, Any]":
         checkpoint = {
-            "train_agent": self._train_agent.state_dict(exclude_keys=["policy_network"]),
+            "train_agent": self._train_agent.state_dict(
+                exclude_keys=["policy_network"]
+            ),
             "policy_network": self._policy_network.state_dict(),
             "buffer_dataset": self._buffer_dataset.state_dict(exclude_keys=["buffer"]),
             "cumrewards": np.asarray(self._cumrewards),
         }
-        if self.train_num_timesteps is not None:
-            checkpoint["train_num_timesteps"] = self.train_num_timesteps.state_dict()
-        if self.train_num_episodes is not None:
-            checkpoint["train_num_episodes"] = self.train_num_episodes.state_dict()
+        if self.train_num_timesteps_per_iteration is not None:
+            checkpoint[
+                "train_num_timesteps_per_iteration"
+            ] = self.train_num_timesteps_per_iteration.state_dict()
+        if self.train_num_episodes_per_iteration is not None:
+            checkpoint[
+                "train_num_episodes_per_iteration"
+            ] = self.train_num_episodes_per_iteration.state_dict()
         if self.eval_interval_iterations is not None:
-            if self.eval_num_timesteps is not None:
-                checkpoint["eval_num_timesteps"] = self.eval_num_timesteps.state_dict()
-            if self.eval_num_episodes is not None:
-                checkpoint["eval_num_episodes"] = self.eval_num_episodes.state_dict()
-            checkpoint["eval_agent"] = self._eval_agent.state_dict(exclude_keys=["policy_network"])
+            if self.eval_num_timesteps_per_iteration is not None:
+                checkpoint[
+                    "eval_num_timesteps_per_iteration"
+                ] = self.eval_num_timesteps_per_iteration.state_dict()
+            if self.eval_num_episodes_per_iteration is not None:
+                checkpoint[
+                    "eval_num_episodes_per_iteration"
+                ] = self.eval_num_episodes_per_iteration.state_dict()
+            checkpoint["eval_agent"] = self._eval_agent.state_dict(
+                exclude_keys=["policy_network"]
+            )
         if self.buffer_checkpoint:
             checkpoint["buffer"] = self._buffer.state_dict()
         return checkpoint
@@ -568,14 +634,22 @@ class Algorithm(ABC, Trainable):
         self._policy_network.load_state_dict(value["policy_network"])
         self._buffer_dataset.load_state_dict(value["buffer_dataset"], strict=False)
         self._cumrewards = deque(value["cumrewards"])
-        if "train_num_timesteps" in value:
-            self.train_num_timesteps.load_state_dict(value["train_num_timesteps"])
-        if "train_num_episodes" in value:
-            self.train_num_episodes.load_state_dict(value["train_num_episodes"])
-        if "eval_num_timesteps" in value:
-            self.eval_num_timesteps.load_state_dict(value["eval_num_timesteps"])
-        if "eval_num_episodes" in value:
-            self.eval_num_episodes.load_state_dict(value["eval_num_episodes"])
+        if "train_num_timesteps_per_iteration" in value:
+            self.train_num_timesteps_per_iteration.load_state_dict(
+                value["train_num_timesteps_per_iteration"]
+            )
+        if "train_num_episodes_per_iteration" in value:
+            self.train_num_episodes_per_iteration.load_state_dict(
+                value["train_num_episodes_per_iteration"]
+            )
+        if "eval_num_timesteps_per_iteration" in value:
+            self.eval_num_timesteps_per_iteration.load_state_dict(
+                value["eval_num_timesteps_per_iteration"]
+            )
+        if "eval_num_episodes_per_iteration" in value:
+            self.eval_num_episodes_per_iteration.load_state_dict(
+                value["eval_num_episodes_per_iteration"]
+            )
         if "eval_agent" in value:
             self._eval_agent.load_state_dict(value["eval_agent"], strict=False)
         if "buffer" in value:
@@ -604,7 +678,9 @@ class Algorithm(ABC, Trainable):
             self.train_env_config = {}
 
         try:
-            train_env = self.train_env_builder(**self.train_env_config, new_step_api=True)
+            train_env = self.train_env_builder(
+                **self.train_env_config, new_step_api=True
+            )
         except TypeError:
             train_env = self.train_env_builder(**self.train_env_config)
         if not isinstance(train_env, BatchedEnv):
@@ -635,19 +711,23 @@ class Algorithm(ABC, Trainable):
         eval_env = BatchedUnflattenAction(BatchedFlattenObservation(eval_env))
         return eval_env
 
-    def _build_policy_network(self) -> "PolicyNetwork":
+    def _build_policy_network(self) -> "PolicyNetwork":  # noqa: C901
         if self.policy_network_preprocessors is None:
             self.policy_network_preprocessors = {}
         unnested_single_observation_space = {
             f"observation{k}": v
             for k, v in self._train_env.single_observation_space.unnested.items()
         }
-        unexpected_keys = self.policy_network_preprocessors.keys() - unnested_single_observation_space.keys()
+        unexpected_keys = (
+            self.policy_network_preprocessors.keys()
+            - unnested_single_observation_space.keys()
+        )
         if not unexpected_keys:
             # Order matters
             self.policy_network_preprocessors = {
                 key: self.policy_network_preprocessors.get(
-                    key, self._get_default_policy_network_preprocessor(space),
+                    key,
+                    self._get_default_policy_network_preprocessor(space),
                 )
                 for key, space in unnested_single_observation_space.items()
             }
@@ -680,7 +760,10 @@ class Algorithm(ABC, Trainable):
             f"action{k}": v
             for k, v in self._train_env.single_action_space.unnested.items()
         }
-        unexpected_keys = self.policy_network_distribution_builders.keys() - unnested_single_action_space.keys()
+        unexpected_keys = (
+            self.policy_network_distribution_builders.keys()
+            - unnested_single_action_space.keys()
+        )
         if not unexpected_keys:
             # Order matters
             policy_network_distribution_builders = {}
@@ -688,31 +771,63 @@ class Algorithm(ABC, Trainable):
             policy_network_distribution_configs = {}
             for key, space in unnested_single_action_space.items():
                 if key in self.policy_network_distribution_builders:
-                    policy_network_distribution_builders[key] = self.policy_network_distribution_builders[key]
+                    policy_network_distribution_builders[
+                        key
+                    ] = self.policy_network_distribution_builders[key]
                     if key not in self.policy_network_distribution_parametrizations:
                         raise ValueError(
-                            f"`policy_network_distribution_parametrizations[\"{key}\"]` must be "
-                            f"set when `policy_network_distribution_builders[\"{key}\"]` is set"
+                            f'`policy_network_distribution_parametrizations["{key}"]` must be '
+                            f'set when `policy_network_distribution_builders["{key}"]` is set'
                         )
-                    policy_network_distribution_parametrizations[key] = self.policy_network_distribution_parametrizations[key]
-                    policy_network_distribution_configs[key] = self.policy_network_distribution_configs.get(key, {})
+                    policy_network_distribution_parametrizations[
+                        key
+                    ] = self.policy_network_distribution_parametrizations[key]
+                    policy_network_distribution_configs[
+                        key
+                    ] = self.policy_network_distribution_configs.get(key, {})
                 else:
-                    policy_network_distribution_builders[key] = self._get_default_policy_network_distribution_builder(space)
-                    policy_network_distribution_parametrizations[key] = self.policy_network_distribution_parametrizations.get(
-                        key, self._get_default_policy_network_distribution_parametrization(space),
+                    policy_network_distribution_builders[
+                        key
+                    ] = self._get_default_policy_network_distribution_builder(space)
+                    policy_network_distribution_parametrizations[
+                        key
+                    ] = self.policy_network_distribution_parametrizations.get(
+                        key,
+                        self._get_default_policy_network_distribution_parametrization(
+                            space
+                        ),
                     )
-                    policy_network_distribution_configs[key] = self.policy_network_distribution_configs.get(
-                        key, self._get_default_policy_network_distribution_config(space),
+                    policy_network_distribution_configs[
+                        key
+                    ] = self.policy_network_distribution_configs.get(
+                        key,
+                        self._get_default_policy_network_distribution_config(space),
                     )
-            self.policy_network_distribution_builders = policy_network_distribution_builders
-            for key, policy_network_distribution_parametrization in self.policy_network_distribution_parametrizations.items():
+            self.policy_network_distribution_builders = (
+                policy_network_distribution_builders
+            )
+            for (
+                key,
+                policy_network_distribution_parametrization,
+            ) in self.policy_network_distribution_parametrizations.items():
                 if key not in policy_network_distribution_parametrizations:
-                    policy_network_distribution_parametrizations[key] = policy_network_distribution_parametrization
-            self.policy_network_distribution_parametrizations = policy_network_distribution_parametrizations
-            for key, policy_network_distribution_config in self.policy_network_distribution_configs.items():
+                    policy_network_distribution_parametrizations[
+                        key
+                    ] = policy_network_distribution_parametrization
+            self.policy_network_distribution_parametrizations = (
+                policy_network_distribution_parametrizations
+            )
+            for (
+                key,
+                policy_network_distribution_config,
+            ) in self.policy_network_distribution_configs.items():
                 if key not in policy_network_distribution_configs:
-                    policy_network_distribution_configs[key] = policy_network_distribution_config
-            self.policy_network_distribution_configs = policy_network_distribution_configs
+                    policy_network_distribution_configs[
+                        key
+                    ] = policy_network_distribution_config
+            self.policy_network_distribution_configs = (
+                policy_network_distribution_configs
+            )
 
         if self.policy_network_normalizing_flows is None:
             self.policy_network_normalizing_flows = {}
@@ -773,14 +888,21 @@ class Algorithm(ABC, Trainable):
                 self.train_sampler_config = {"callbacks": []}
         if self.train_sampler_config is None:
             self.train_sampler_config = {}
-        if self.train_num_timesteps is None and self.train_num_episodes is None:
-            self.train_num_episodes = 10
-        if self.train_num_timesteps is not None:
-            if not isinstance(self.train_num_timesteps, Schedule):
-                self.train_num_timesteps = ConstantSchedule(self.train_num_timesteps)
-        if self.train_num_episodes is not None:
-            if not isinstance(self.train_num_episodes, Schedule):
-                self.train_num_episodes = ConstantSchedule(self.train_num_episodes)
+        if (
+            self.train_num_timesteps_per_iteration is None
+            and self.train_num_episodes_per_iteration is None
+        ):
+            self.train_num_episodes_per_iteration = 1
+        if self.train_num_timesteps_per_iteration is not None:
+            if not isinstance(self.train_num_timesteps_per_iteration, Schedule):
+                self.train_num_timesteps_per_iteration = ConstantSchedule(
+                    self.train_num_timesteps_per_iteration
+                )
+        if self.train_num_episodes_per_iteration is not None:
+            if not isinstance(self.train_num_episodes_per_iteration, Schedule):
+                self.train_num_episodes_per_iteration = ConstantSchedule(
+                    self.train_num_episodes_per_iteration
+                )
         return self.train_sampler_builder(
             self._train_env,
             self._train_agent,
@@ -794,14 +916,21 @@ class Algorithm(ABC, Trainable):
                 self.eval_sampler_config = {"callbacks": []}
         if self.eval_sampler_config is None:
             self.eval_sampler_config = {}
-        if self.eval_num_timesteps is None and self.eval_num_episodes is None:
-            self.eval_num_episodes = 10
-        if self.eval_num_timesteps is not None:
-            if not isinstance(self.eval_num_timesteps, Schedule):
-                self.eval_num_timesteps = ConstantSchedule(self.eval_num_timesteps)
-        if self.eval_num_episodes is not None:
-            if not isinstance(self.eval_num_episodes, Schedule):
-                self.eval_num_episodes = ConstantSchedule(self.eval_num_episodes)
+        if (
+            self.eval_num_timesteps_per_iteration is None
+            and self.eval_num_episodes_per_iteration is None
+        ):
+            self.eval_num_episodes_per_iteration = 1
+        if self.eval_num_timesteps_per_iteration is not None:
+            if not isinstance(self.eval_num_timesteps_per_iteration, Schedule):
+                self.eval_num_timesteps_per_iteration = ConstantSchedule(
+                    self.eval_num_timesteps_per_iteration
+                )
+        if self.eval_num_episodes_per_iteration is not None:
+            if not isinstance(self.eval_num_episodes_per_iteration, Schedule):
+                self.eval_num_episodes_per_iteration = ConstantSchedule(
+                    self.eval_num_episodes_per_iteration
+                )
         return self.eval_sampler_builder(
             self._eval_env,
             self._eval_agent,
@@ -879,20 +1008,21 @@ class Algorithm(ABC, Trainable):
         return profile(**self.enable_profiling)
 
     def _train_step(self) -> "Dict[str, Any]":
-        train_num_timesteps = train_num_episodes = None
-        if self.train_num_timesteps:
-            train_num_timesteps = self.train_num_timesteps()
-            self.train_num_timesteps.step()
-        if self.train_num_episodes:
-            train_num_episodes = self.train_num_episodes()
-            self.train_num_episodes.step()
+        train_num_timesteps_per_iteration = train_num_episodes_per_iteration = None
+        if self.train_num_timesteps_per_iteration:
+            train_num_timesteps_per_iteration = self.train_num_timesteps_per_iteration()
+            self.train_num_timesteps_per_iteration.step()
+        if self.train_num_episodes_per_iteration:
+            train_num_episodes_per_iteration = self.train_num_episodes_per_iteration()
+            self.train_num_episodes_per_iteration.step()
         with (
-            autocast(**self.enable_amp) if self.enable_amp["enabled"]
-            else contextlib.suppress()  # Avoid UserWarning: User provided device_type of 'cuda', but CUDA is not available. Disabling
+            autocast(**self.enable_amp)
+            if self.enable_amp["enabled"]
+            else contextlib.suppress()
         ):
             for experience, done in self._train_sampler.sample(
-                train_num_timesteps,
-                train_num_episodes,
+                train_num_timesteps_per_iteration,
+                train_num_episodes_per_iteration,
             ):
                 self._buffer.add(experience, done)
         result = self._train_sampler.stats
@@ -917,10 +1047,7 @@ class Algorithm(ABC, Trainable):
         if not self._policy_network.training:
             self._policy_network.train()
         self._policy_network.to(self._device, non_blocking=True)
-        with (
-            self._profiler if self._profiler
-            else contextlib.suppress()
-        ):
+        with (self._profiler if self._profiler else contextlib.suppress()):
             for experiences, is_weight, mask in self._dataloader:
                 observation = experiences.pop("next_observation")
                 observation = F.pad(
@@ -930,15 +1057,22 @@ class Algorithm(ABC, Trainable):
                 experiences["observation"] = observation
                 mask = F.pad(mask, [1, 0], value=True)
                 for k, v in experiences.items():
-                    experiences[k] = v.to(self._device, dtype=torch.float32, non_blocking=True)
-                is_weight = is_weight.to(self._device, dtype=torch.float32, non_blocking=True)
+                    experiences[k] = v.to(
+                        self._device, dtype=torch.float32, non_blocking=True
+                    )
+                is_weight = is_weight.to(
+                    self._device, dtype=torch.float32, non_blocking=True
+                )
                 mask = mask.to(self._device, non_blocking=True)
                 with (
-                    record_function("_train_on_batch") if self._profiler
+                    record_function("_train_on_batch")
+                    if self._profiler
                     else contextlib.suppress()
                 ):
                     train_on_batch_result, priority = self._train_on_batch(
-                        experiences, is_weight, mask,
+                        experiences,
+                        is_weight,
+                        mask,
                     )
                 if self._profiler:
                     self._profiler.step()
@@ -947,21 +1081,22 @@ class Algorithm(ABC, Trainable):
         return train_on_batch_result
 
     def _eval_step(self) -> "Dict[str, Any]":
-        eval_num_timesteps = eval_num_episodes = None
-        if self.eval_num_timesteps:
-            eval_num_timesteps = self.eval_num_timesteps()
-            self.eval_num_timesteps.step()
-        if self.eval_num_episodes:
-            eval_num_episodes = self.eval_num_episodes()
-            self.eval_num_episodes.step()
+        eval_num_timesteps_per_iteration = eval_num_episodes_per_iteration = None
+        if self.eval_num_timesteps_per_iteration:
+            eval_num_timesteps_per_iteration = self.eval_num_timesteps_per_iteration()
+            self.eval_num_timesteps_per_iteration.step()
+        if self.eval_num_episodes_per_iteration:
+            eval_num_episodes_per_iteration = self.eval_num_episodes_per_iteration()
+            self.eval_num_episodes_per_iteration.step()
         self._eval_sampler.reset()
         with (
-            autocast(**self.enable_amp) if self.enable_amp["enabled"]
-            else contextlib.suppress()  # Avoid UserWarning: User provided device_type of 'cuda', but CUDA is not available. Disabling
+            autocast(**self.enable_amp)
+            if self.enable_amp["enabled"]
+            else contextlib.suppress()
         ):
             for _ in self._eval_sampler.sample(
-                eval_num_timesteps,
-                eval_num_episodes,
+                eval_num_timesteps_per_iteration,
+                eval_num_episodes_per_iteration,
             ):
                 pass
         for schedule in self._eval_agent.schedules.values():
@@ -969,7 +1104,9 @@ class Algorithm(ABC, Trainable):
         return self._eval_sampler.stats
 
     @singledispatchmethod(use_weakrefs=False)
-    def _get_default_policy_network_preprocessor(self, space: "spaces.Space") -> "Processor":
+    def _get_default_policy_network_preprocessor(
+        self, space: "spaces.Space"
+    ) -> "Processor":
         raise NotImplementedError(
             f"Unsupported space type: "
             f"`{type(space).__module__}.{type(space).__name__}`. "
@@ -980,7 +1117,8 @@ class Algorithm(ABC, Trainable):
 
     @singledispatchmethod(use_weakrefs=False)
     def _get_default_policy_network_distribution_builder(
-        self, space: "spaces.Space",
+        self,
+        space: "spaces.Space",
     ) -> "Callable[..., Distribution]":
         raise NotImplementedError(
             f"Unsupported space type: "
@@ -992,7 +1130,8 @@ class Algorithm(ABC, Trainable):
 
     @singledispatchmethod(use_weakrefs=False)
     def _get_default_policy_network_distribution_parametrization(
-        self, space: "spaces.Space",
+        self,
+        space: "spaces.Space",
     ) -> "Callable[..., DistributionParametrization]":
         raise NotImplementedError(
             f"Unsupported space type: "
@@ -1004,7 +1143,8 @@ class Algorithm(ABC, Trainable):
 
     @singledispatchmethod(use_weakrefs=False)
     def _get_default_policy_network_distribution_config(
-        self, space: "spaces.Space",
+        self,
+        space: "spaces.Space",
     ) -> "Dict[str, Any]":
         raise NotImplementedError(
             f"Unsupported space type: "
@@ -1018,9 +1158,18 @@ class Algorithm(ABC, Trainable):
         single_observation_space = self._train_env.single_observation_space
         single_action_space = self._train_env.single_action_space
         return {
-            "observation": {"shape": single_observation_space.shape, "dtype": single_observation_space.dtype},
-            "next_observation": {"shape": single_observation_space.shape, "dtype": single_observation_space.dtype},
-            "action": {"shape": single_action_space.shape, "dtype": single_action_space.dtype},
+            "observation": {
+                "shape": single_observation_space.shape,
+                "dtype": single_observation_space.dtype,
+            },
+            "next_observation": {
+                "shape": single_observation_space.shape,
+                "dtype": single_observation_space.dtype,
+            },
+            "action": {
+                "shape": single_action_space.shape,
+                "dtype": single_action_space.dtype,
+            },
             "log_prob": {"shape": (), "dtype": np.float32},
             "reward": {"shape": (), "dtype": np.float32},
             "terminal": {"shape": (), "dtype": bool},
@@ -1044,7 +1193,9 @@ class Algorithm(ABC, Trainable):
                 # RuntimeError: Dictionary inputs must have entries
                 input_to_model[1]["_"] = torch.empty(1)
             summary_writer.add_graph(
-                model, input_to_model, use_strict_trace=False,
+                model,
+                input_to_model,
+                use_strict_trace=False,
             )
             summary_writer.close()
         except Exception as e:
@@ -1072,22 +1223,19 @@ class Algorithm(ABC, Trainable):
         if isinstance(item, (tuple, list)):
             return type(item)(self._resolve_future_refs_if_any(v) for v in item)
         if isinstance(item, dict):
-            return {
-                k: self._resolve_future_refs_if_any(v)
-                for k, v in item.items()
-            }
+            return {k: self._resolve_future_refs_if_any(v) for k, v in item.items()}
         if isinstance(item, FutureRef):
             return item.resolve(self=self, cls=type(self))
         return deepcopy(item)
 
-    def __getattr__(self, name: "str") -> "Any":
+    def __getattr__(self, name: "str") -> "Optional[Any]":
         try:
             attr = self.config[name]
         except KeyError:
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{name}'"
-            )
-        attr = self.__dict__[name] = self._resolve_future_refs_if_any(attr)
+            attr = None
+        self.__dict__[name] = attr
+        if attr is not None:
+            self.__dict__[name] = attr = self._resolve_future_refs_if_any(attr)
         return attr
 
     @abstractmethod
@@ -1134,6 +1282,7 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
     actorch.algorithms.algorithm.Algorithm
 
     """
+
     _ALGORITHM_CLS = Algorithm
 
     _REDUCTION_SUM_KEYS = [
@@ -1146,6 +1295,7 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
     # override
     class Config(dict):
         """Keyword arguments expected in the configuration received by `setup`."""
+
         def __init__(
             self,
             num_workers: "Tunable[int]" = 1,
@@ -1210,7 +1360,7 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
             Since the configuration is the same for each worker, the effective
             value of a parameter that is cumulative by nature is equal to the
             same parameter value multiplied by the number of workers (e.g.
-            ``train_num_episodes = num_workers * worker_config["train_num_episodes"]``).
+            ``train_num_episodes_per_iteration = num_workers * worker_config["train_num_episodes_per_iteration"]``).
 
             """
             super().__init__(
@@ -1252,17 +1402,27 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
             def setup(self, config: "Dict[str, Any]") -> "None":
                 init_mock_train_session()
                 super().setup(config)
-                accelerate(amp=self.enable_amp["enabled"])
+                # Handle Ray local mode (i.e. single process) correctly
+                try:
+                    accelerate(amp=self.enable_amp["enabled"])
+                except RuntimeError as e:
+                    _LOGGER.warning(f"Could not enable training optimizations: {e}")
                 self._dataloader = prepare_data_loader(
-                    self._dataloader, add_dist_sampler=False,
+                    self._dataloader,
+                    add_dist_sampler=False,
                 )
                 self._policy_network_state_dict_keys = list(
                     self._policy_network.state_dict().keys()
                 )
                 self._policy_network_wrapped_model = self._policy_network.wrapped_model
-                self._policy_network_normalizing_flows = self._policy_network.normalizing_flows
+                self._policy_network_normalizing_flows = (
+                    self._policy_network.normalizing_flows
+                )
                 prepare_model_kwargs = {}
-                if not any(x.requires_grad for x in self._policy_network_wrapped_model.parameters()):
+                if not any(
+                    x.requires_grad
+                    for x in self._policy_network_wrapped_model.parameters()
+                ):
                     prepare_model_kwargs = {"ddp_cls": None}
                 self._policy_network.wrapped_model = prepare_model(
                     self._policy_network_wrapped_model,
@@ -1274,7 +1434,8 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
                     if not any(x.requires_grad for x in model.parameters()):
                         prepare_model_kwargs = {"ddp_cls": None}
                     self._policy_network.normalizing_flows[k].model = prepare_model(
-                        model, **prepare_model_kwargs,
+                        model,
+                        **prepare_model_kwargs,
                     )
                 self._prepared_policy_network_state_dict_keys = list(
                     self._policy_network.state_dict().keys()
@@ -1306,7 +1467,9 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
                 export_dir: "str",
             ) -> "Dict[str, str]":
                 self._policy_network.wrapped_model = self._policy_network_wrapped_model
-                self._policy_network.normalizing_flows = self._policy_network_normalizing_flows
+                self._policy_network.normalizing_flows = (
+                    self._policy_network_normalizing_flows
+                )
                 return super()._export_model(export_formats, export_dir)
 
             # override
@@ -1321,10 +1484,14 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
         reduced = results[0]
         for k, v in reduced.items():
             if isinstance(v, dict):
-                reduced[k] = self._reduce([result[k] for result in results if k in result])
+                reduced[k] = self._reduce(
+                    [result[k] for result in results if k in result]
+                )
                 continue
             if k.endswith("/mean"):
-                reduced[k] = np.asarray([result[k] for result in results if k in result]).mean(axis=0)
+                reduced[k] = np.asarray(
+                    [result[k] for result in results if k in result]
+                ).mean(axis=0)
                 continue
             if k.endswith("/stddev"):
                 mean_key = k.replace("/stddev", "/mean")
@@ -1336,17 +1503,24 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
                     means = np.asarray(means)
                     stddevs = np.asarray(stddevs)
                 else:
-                    stddevs = np.asarray([result[k] for result in results if k in result])
+                    stddevs = np.asarray(
+                        [result[k] for result in results if k in result]
+                    )
                     means = np.zeros_like(stddevs)
                 reduced[k] = np.sqrt(
-                    (means ** 2 + stddevs ** 2).mean(axis=0) - means.mean(axis=0) ** 2
+                    (means**2 + stddevs**2).mean(axis=0) - means.mean(axis=0) ** 2
                 )
                 continue
             try:
                 value = np.asarray([result[k] for result in results if k in result])
-                reduced[k] = value.all() if value.dtype == bool else (
-                    value.sum(axis=0) if k in self._REDUCTION_SUM_KEYS else
-                    value.mean(axis=0)
+                reduced[k] = (
+                    value.all()
+                    if value.dtype == bool
+                    else (
+                        value.sum(axis=0)
+                        if k in self._REDUCTION_SUM_KEYS
+                        else value.mean(axis=0)
+                    )
                 )
             except Exception:
                 pass
@@ -1361,21 +1535,24 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
 @Algorithm._get_default_policy_network_preprocessor.register(spaces.Box)
 @Algorithm._get_default_policy_network_preprocessor.register(spaces.MultiBinary)
 def _get_default_policy_network_preprocessor_box_multi_binary(
-    self, space: "Union[spaces.Box, spaces.MultiBinary]",
+    self,
+    space: "Union[spaces.Box, spaces.MultiBinary]",
 ) -> "Identity":
     return Identity(space.shape)
 
 
 @Algorithm._get_default_policy_network_preprocessor.register(spaces.Discrete)
 def _get_default_policy_network_preprocessor_discrete(
-    self, space: "spaces.Discrete",
+    self,
+    space: "spaces.Discrete",
 ) -> "OneHotEncode":
     return OneHotEncode(space.n)
 
 
 @Algorithm._get_default_policy_network_preprocessor.register(spaces.MultiDiscrete)
 def _get_default_policy_network_preprocessor_multi_discrete(
-    self, space: "spaces.MultiDiscrete",
+    self,
+    space: "spaces.MultiDiscrete",
 ) -> "Independent":
     return Independent(OneHotEncode(space.nvec.max()), space.shape)
 
@@ -1387,22 +1564,27 @@ def _get_default_policy_network_preprocessor_multi_discrete(
 
 @Algorithm._get_default_policy_network_distribution_builder.register(spaces.Box)
 def _get_default_policy_network_distribution_builder_box(
-    self, space: "spaces.Box",
+    self,
+    space: "spaces.Box",
 ) -> "Callable[..., Normal]":
     return Normal
 
 
 @Algorithm._get_default_policy_network_distribution_builder.register(spaces.Discrete)
-@Algorithm._get_default_policy_network_distribution_builder.register(spaces.MultiDiscrete)
+@Algorithm._get_default_policy_network_distribution_builder.register(
+    spaces.MultiDiscrete
+)
 def _get_default_policy_network_distribution_builder_discrete_multi_discrete(
-    self, space: "Union[spaces.Discrete, spaces.MultiDiscrete]",
+    self,
+    space: "Union[spaces.Discrete, spaces.MultiDiscrete]",
 ) -> "Callable[..., Categorical]":
     return Categorical
 
 
 @Algorithm._get_default_policy_network_distribution_builder.register(spaces.MultiBinary)
 def _get_default_policy_network_distribution_builder_multi_binary(
-    self, space: "spaces.MultiBinary",
+    self,
+    space: "spaces.MultiBinary",
 ) -> "Callable[..., Bernoulli]":
     return Bernoulli
 
@@ -1414,7 +1596,8 @@ def _get_default_policy_network_distribution_builder_multi_binary(
 
 @Algorithm._get_default_policy_network_distribution_parametrization.register(spaces.Box)
 def _get_default_policy_network_distribution_parametrization_box(
-    self, space: "spaces.Box",
+    self,
+    space: "spaces.Box",
 ) -> "DistributionParametrization":
     return {
         "loc": (
@@ -1428,9 +1611,12 @@ def _get_default_policy_network_distribution_parametrization_box(
     }
 
 
-@Algorithm._get_default_policy_network_distribution_parametrization.register(spaces.Discrete)
+@Algorithm._get_default_policy_network_distribution_parametrization.register(
+    spaces.Discrete
+)
 def _get_default_policy_network_distribution_parametrization_discrete(
-    self, space: "spaces.Discrete",
+    self,
+    space: "spaces.Discrete",
 ) -> "DistributionParametrization":
     return {
         "logits": (
@@ -1440,9 +1626,12 @@ def _get_default_policy_network_distribution_parametrization_discrete(
     }
 
 
-@Algorithm._get_default_policy_network_distribution_parametrization.register(spaces.MultiBinary)
+@Algorithm._get_default_policy_network_distribution_parametrization.register(
+    spaces.MultiBinary
+)
 def _get_default_policy_network_distribution_parametrization_multi_binary(
-    self, space: "spaces.MultiBinary",
+    self,
+    space: "spaces.MultiBinary",
 ) -> "DistributionParametrization":
     return {
         "logits": (
@@ -1452,9 +1641,12 @@ def _get_default_policy_network_distribution_parametrization_multi_binary(
     }
 
 
-@Algorithm._get_default_policy_network_distribution_parametrization.register(spaces.MultiDiscrete)
+@Algorithm._get_default_policy_network_distribution_parametrization.register(
+    spaces.MultiDiscrete
+)
 def _get_default_policy_network_distribution_parametrization_multi_discrete(
-    self, space: "spaces.MultiDiscrete",
+    self,
+    space: "spaces.MultiDiscrete",
 ) -> "DistributionParametrization":
     nvec = torch.as_tensor(space.nvec)
     mask = torch.arange(nvec.max().int()).expand(*nvec.shape, -1) < nvec[..., None]
@@ -1473,15 +1665,19 @@ def _get_default_policy_network_distribution_parametrization_multi_discrete(
 
 @Algorithm._get_default_policy_network_distribution_config.register(spaces.Box)
 def _get_default_policy_network_distribution_config_box(
-    self, space: "spaces.Box",
+    self,
+    space: "spaces.Box",
 ) -> "Dict[str, Any]":
     return {"validate_args": False}
 
 
 @Algorithm._get_default_policy_network_distribution_config.register(spaces.Discrete)
 @Algorithm._get_default_policy_network_distribution_config.register(spaces.MultiBinary)
-@Algorithm._get_default_policy_network_distribution_config.register(spaces.MultiDiscrete)
+@Algorithm._get_default_policy_network_distribution_config.register(
+    spaces.MultiDiscrete
+)
 def _get_default_policy_network_distribution_config_discrete_multi_binary_multi_discrete(
-    self, space: "Union[spaces.Discrete, spaces.MultiBinary, spaces.MultiDiscrete]",
+    self,
+    space: "Union[spaces.Discrete, spaces.MultiBinary, spaces.MultiDiscrete]",
 ) -> "Dict[str, Any]":
     return {"probs": None, "validate_args": False}

@@ -1,5 +1,17 @@
 # ==============================================================================
-# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# Copyright 2022 Luca Della Libera.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # ==============================================================================
 
 """Conjugate gradient backtracking line search optimizer."""
@@ -356,10 +368,6 @@ class CGBLS(optim.Optimizer):
                URL: https://msp.org/pjm/1966/16-1/p01.xhtml
 
         """
-        prev_params = [p.clone() for p in params]
-        ratios = backtrack_ratio ** torch.arange(max_backtracks)
-        loss_before = loss_fn()
-
         param_shapes = [p.shape or (1,) for p in params]
         descent_steps = [
             x.reshape(shape)
@@ -372,12 +380,13 @@ class CGBLS(optim.Optimizer):
         ]
         assert len(descent_steps) == len(params)
 
+        prev_params = [p.clone() for p in params]
+        ratios = backtrack_ratio ** torch.arange(max_backtracks)
+        loss_before = loss_fn()
         loss, constraint = 0.0, 0.0
         for ratio in ratios:
-            for i, (step, prev_param) in enumerate(zip(descent_steps, prev_params)):
-                step = ratio * step
-                new_param = prev_param - step
-                params[i] = new_param
+            for i, step in enumerate(descent_steps):
+                params[i] -= ratio * step
 
             loss = loss_fn()
             constraint = constraint_fn()

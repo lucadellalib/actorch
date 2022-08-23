@@ -14,55 +14,48 @@
 # limitations under the License.
 # ==============================================================================
 
-"""REINFORCE."""
+"""Proximal Policy Optimization."""
 
 import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
+import torch
 from gym import Env
 from numpy import ndarray
 from torch import Tensor
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import autocast
 from torch.distributions import Distribution
-from torch.nn.utils import clip_grad_norm_
-from torch.optim import Adam, Optimizer, lr_scheduler
-from torch.utils.data import DataLoader
+from torch.nn.modules import loss
+from torch.optim import Optimizer, lr_scheduler
+from torch.utils.data import DataLoader, TensorDataset
 
 from actorch.agents import Agent
-from actorch.algorithms.algorithm import (
-    Algorithm,
-    DistributedDataParallelAlgorithm,
-    RefOrFutureRef,
-    Tunable,
-)
-from actorch.algorithms.value_estimation import monte_carlo_return
-from actorch.buffers import Buffer
-from actorch.datasets import BufferDataset
+from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C
+from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
+from actorch.algorithms.value_estimation import lambda_return
 from actorch.envs import BatchedEnv
 from actorch.models import Model
 from actorch.networks import DistributionParametrization, NormalizingFlow, Processor
 from actorch.samplers import Sampler
-from actorch.schedules import ConstantSchedule, LambdaSchedule, Schedule
+from actorch.schedules import ConstantSchedule, Schedule
 
 
 __all__ = [
-    "DistributedDataParallelREINFORCE",
-    "REINFORCE",
+    "DistributedDataParallelPPO",
+    "PPO",
 ]
 
 
-class REINFORCE(Algorithm):
-    """REINFORCE.
+class PPO(A2C):
+    """Proximal Policy Optimization.
 
     References
     ----------
-    .. [1] R. J. Williams. "Simple Statistical Gradient-Following Algorithms
-           for Connectionist Reinforcement Learning". In: Mach. Learn. 1992, pp. 229-256.
-           URL: https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
+    .. [1] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov.
+           "Proximal Policy Optimization Algorithms". In: arXiv. 2017.
+           URL: https://arxiv.org/abs/1707.06347
 
     """
-
-    _UPDATE_BUFFER_DATASET_SCHEDULES_AFTER_TRAIN_EPOCH = False  # override
 
     # override
     class Config(dict):
@@ -76,6 +69,7 @@ class REINFORCE(Algorithm):
             train_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             train_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             train_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            train_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             train_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             eval_interval_iterations: "Tunable[RefOrFutureRef[Optional[int]]]" = 1,
             eval_env_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Union[Env, BatchedEnv]]]]]" = None,
@@ -100,9 +94,23 @@ class REINFORCE(Algorithm):
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
             policy_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            value_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
+            value_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
+            value_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., loss._Loss]]]]" = None,
+            value_network_loss_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            value_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
+            value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             dataloader_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., DataLoader]]]]" = None,
             dataloader_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             discount: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.99,
+            trace_decay: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.95,
+            num_epochs: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 10,
+            minibatch_size: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 64,
+            clip_param: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.2,
+            normalize_advantage: "Tunable[RefOrFutureRef[bool]]" = False,
             entropy_coeff: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.01,
             max_grad_l2_norm: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = float(  # noqa: B008
                 "inf"
@@ -127,6 +135,7 @@ class REINFORCE(Algorithm):
                 train_agent_config=train_agent_config,
                 train_sampler_builder=train_sampler_builder,
                 train_sampler_config=train_sampler_config,
+                train_num_timesteps_per_iteration=train_num_timesteps_per_iteration,
                 train_num_episodes_per_iteration=train_num_episodes_per_iteration,
                 eval_interval_iterations=eval_interval_iterations,
                 eval_env_builder=eval_env_builder,
@@ -151,9 +160,23 @@ class REINFORCE(Algorithm):
                 policy_network_optimizer_config=policy_network_optimizer_config,
                 policy_network_optimizer_lr_scheduler_builder=policy_network_optimizer_lr_scheduler_builder,
                 policy_network_optimizer_lr_scheduler_config=policy_network_optimizer_lr_scheduler_config,
+                value_network_preprocessors=value_network_preprocessors,
+                value_network_model_builder=value_network_model_builder,
+                value_network_model_config=value_network_model_config,
+                value_network_loss_builder=value_network_loss_builder,
+                value_network_loss_config=value_network_loss_config,
+                value_network_optimizer_builder=value_network_optimizer_builder,
+                value_network_optimizer_config=value_network_optimizer_config,
+                value_network_optimizer_lr_scheduler_builder=value_network_optimizer_lr_scheduler_builder,
+                value_network_optimizer_lr_scheduler_config=value_network_optimizer_lr_scheduler_config,
                 dataloader_builder=dataloader_builder,
                 dataloader_config=dataloader_config,
                 discount=discount,
+                trace_decay=trace_decay,
+                num_epochs=num_epochs,
+                minibatch_size=minibatch_size,
+                clip_param=clip_param,
+                normalize_advantage=normalize_advantage,
                 entropy_coeff=entropy_coeff,
                 max_grad_l2_norm=max_grad_l2_norm,
                 cumreward_window_size=cumreward_window_size,
@@ -169,115 +192,44 @@ class REINFORCE(Algorithm):
 
     # override
     def setup(self, config: "Dict[str, Any]") -> "None":
-        self.config = REINFORCE.Config(**self.config)
+        self.config = PPO.Config(**self.config)
         self.config["_accept_kwargs"] = True
         super().setup(config)
-        self._policy_network_optimizer = self._build_policy_network_optimizer()
-        self._policy_network_optimizer_lr_scheduler = (
-            self._build_policy_network_optimizer_lr_scheduler()
-        )
-        self._grad_scaler = GradScaler(enabled=self.enable_amp["enabled"])
-        if not isinstance(self.discount, Schedule):
-            self.discount = ConstantSchedule(self.discount)
-        if not isinstance(self.entropy_coeff, Schedule):
-            self.entropy_coeff = ConstantSchedule(self.entropy_coeff)
-        if not isinstance(self.max_grad_l2_norm, Schedule):
-            self.max_grad_l2_norm = ConstantSchedule(self.max_grad_l2_norm)
+        if not isinstance(self.trace_decay, Schedule):
+            self.trace_decay = ConstantSchedule(self.trace_decay)
+        if not isinstance(self.num_epochs, Schedule):
+            self.num_epochs = ConstantSchedule(self.num_epochs)
+        if not isinstance(self.minibatch_size, Schedule):
+            self.minibatch_size = ConstantSchedule(self.minibatch_size)
+        if not isinstance(self.clip_param, Schedule):
+            self.clip_param = ConstantSchedule(self.clip_param)
 
     # override
     @property
     def _checkpoint(self) -> "Dict[str, Any]":
         checkpoint = super()._checkpoint
-        checkpoint[
-            "policy_network_optimizer"
-        ] = self._policy_network_optimizer.state_dict()
-        if self._policy_network_optimizer_lr_scheduler is not None:
-            checkpoint[
-                "policy_network_optimizer_lr_scheduler"
-            ] = self._policy_network_optimizer_lr_scheduler.state_dict()
-        checkpoint["grad_scaler"] = self._grad_scaler.state_dict()
-        checkpoint["discount"] = self.discount.state_dict()
-        checkpoint["entropy_coeff"] = self.entropy_coeff.state_dict()
-        checkpoint["max_grad_l2_norm"] = self.max_grad_l2_norm.state_dict()
+        checkpoint["trace_decay"] = self.trace_decay.state_dict()
+        checkpoint["num_epochs"] = self.num_epochs.state_dict()
+        checkpoint["minibatch_size"] = self.minibatch_size.state_dict()
+        checkpoint["clip_param"] = self.clip_param.state_dict()
         return checkpoint
 
     # override
     @_checkpoint.setter
     def _checkpoint(self, value: "Dict[str, Any]") -> "None":
         super()._checkpoint = value
-        self._policy_network_optimizer.load_state_dict(
-            value["policy_network_optimizer"]
-        )
-        if "policy_network_optimizer_lr_scheduler" in value:
-            self._policy_network_optimizer_lr_scheduler.load_state_dict(
-                value["policy_network_optimizer_lr_scheduler"]
-            )
-        self._grad_scaler.load_state_dict(value["grad_scaler"])
-        self.discount.load_state_dict(value["discount"])
-        self.entropy_coeff.load_state_dict(value["entropy_coeff"])
-        self.max_grad_l2_norm.load_state_dict(value["max_grad_l2_norm"])
-
-    # override
-    def _build_buffer(self) -> "Buffer":
-        if self.buffer_config is None:
-            self.buffer_config = {"capacity": float("inf")}
-        return super()._build_buffer()
-
-    # override
-    def _build_buffer_dataset(self) -> "BufferDataset":
-        if self.buffer_dataset_config is None:
-            batch_size = self.train_num_episodes_per_iteration
-            if batch_size is None:
-                batch_size = LambdaSchedule(
-                    lambda *args, **kwargs: self._buffer.num_full_trajectories
-                )
-            self.buffer_dataset_config = {
-                "batch_size": batch_size,
-                "max_trajectory_length": float("inf"),
-                "num_iterations": 1,
-            }
-        return super()._build_buffer_dataset()
-
-    def _build_policy_network_optimizer(self) -> "Optimizer":
-        if self.policy_network_optimizer_builder is None:
-            self.policy_network_optimizer_builder = Adam
-            if self.policy_network_optimizer_config is None:
-                self.policy_network_optimizer_config = {
-                    "lr": 1e-5,
-                    "betas": (0.9, 0.999),
-                    "eps": 1e-08,
-                    "weight_decay": 0.0,
-                    "amsgrad": False,
-                    "foreach": None,
-                    "maximize": False,
-                    "capturable": False,
-                }
-        if self.policy_network_optimizer_config is None:
-            self.policy_network_optimizer_config = {}
-        return self.policy_network_optimizer_builder(
-            self._policy_network.parameters(),
-            **self.policy_network_optimizer_config,
-        )
-
-    def _build_policy_network_optimizer_lr_scheduler(
-        self,
-    ) -> "Optional[lr_scheduler._LRScheduler]":
-        if self.policy_network_optimizer_lr_scheduler_builder is None:
-            return
-        if self.policy_network_optimizer_lr_scheduler_config is None:
-            self.policy_network_optimizer_lr_scheduler_config = {}
-        return self.policy_network_optimizer_lr_scheduler_builder(
-            self._policy_network_optimizer,
-            **self.policy_network_optimizer_lr_scheduler_config,
-        )
+        self.trace_decay.load_state_dict(value["trace_decay"])
+        self.num_epochs.load_state_dict(value["num_epochs"])
+        self.minibatch_size.load_state_dict(value["minibatch_size"])
+        self.clip_param.load_state_dict(value["clip_param"])
 
     # override
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
-        self.discount.step()
-        self.entropy_coeff.step()
-        self.max_grad_l2_norm.step()
-        self._buffer.reset()
+        self.trace_decay.step()
+        self.num_epochs.step()
+        self.minibatch_size.step()
+        self.clip_param.step()
         return result
 
     # override
@@ -287,25 +239,89 @@ class REINFORCE(Algorithm):
         is_weight: "Tensor",
         mask: "Tensor",
     ) -> "Tuple[Dict[str, Any], Optional[ndarray]]":
+        minibatch_size = self.minibatch_size()
+        if minibatch_size < 1 or not float(minibatch_size).is_integer():
+            raise ValueError(
+                f"`minibatch_size` ({minibatch_size}) must be in the integer interval [1, inf)"
+            )
+        minibatch_size = int(minibatch_size)
+        num_epochs = self.num_epochs()
+        if num_epochs < 1 or not float(num_epochs).is_integer():
+            raise ValueError(
+                f"`num_epochs` ({num_epochs}) must be in the integer interval [1, inf)"
+            )
+        num_epochs = int(num_epochs)
+
         result = {}
 
-        # Discard next observation
-        experiences["observation"] = experiences["observation"][:, :-1, ...]
-        mask = mask[:, 1:]
-        _, advantages = monte_carlo_return(
-            experiences["reward"],
-            mask,
-            self.discount(),
-        )
+        with (
+            autocast(**self.enable_amp)
+            if self.enable_amp["enabled"]
+            else contextlib.suppress()
+        ):
+            with torch.no_grad():
+                state_values, _ = self._value_network(
+                    experiences["observation"], mask=mask
+                )
+            # Discard next observation
+            experiences["observation"] = experiences["observation"][:, :-1, ...]
+            mask = mask[:, 1:]
+            targets, advantages = lambda_return(
+                state_values,
+                experiences["reward"],
+                experiences["terminal"],
+                mask,
+                self.discount(),
+                self.trace_decay(),
+            )
 
-        result["policy_network"] = self._train_on_batch_policy_network(
-            experiences,
-            advantages,
-            mask,
-        )
-        self._grad_scaler.update()
-        return result, None
+        args = [targets, advantages, mask, *experiences.values()]
+        for i, v in enumerate(args):
+            args[i] = v.movedim(0, 1)
+        dataset = TensorDataset(*args)
+        dataloader = DataLoader(dataset, batch_size=minibatch_size)
+        priority = None
+        for _ in range(num_epochs):
+            for batch in dataloader:
+                for i, v in enumerate(batch):
+                    batch[i] = v.movedim(0, 1)
+                targets_batch, advantages_batch, mask_batch = batch[:3]
+                experiences_batch = {k: v for k, v in zip(experiences, batch[3:])}
+                if self.normalize_advantage:
+                    length_batch = mask_batch.sum(dim=1, keepdim=True)
+                    advantages_batch_mean = (
+                        advantages_batch.sum(dim=1, keepdim=True) / length_batch
+                    )
+                    advantages_batch -= advantages_batch_mean
+                    advantages_batch *= mask_batch
+                    advantages_batch_stddev = (
+                        (
+                            (advantages_batch**2).sum(dim=1, keepdim=True)
+                            / length_batch
+                        )
+                        .sqrt()
+                        .clamp(min=1e-6)
+                    )
+                    advantages_batch /= advantages_batch_stddev
+                    advantages_batch *= mask_batch
+                state_values_batch, _ = self._value_network(
+                    experiences_batch["observation"], mask=mask_batch
+                )
+                result["value_network"], priority = self._train_on_batch_value_network(
+                    state_values_batch,
+                    targets_batch,
+                    is_weight,
+                    mask_batch,
+                )
+                result["policy_network"] = self._train_on_batch_policy_network(
+                    experiences_batch,
+                    advantages_batch,
+                    mask_batch,
+                )
+                self._grad_scaler.update()
+        return result, priority
 
+    # override
     def _train_on_batch_policy_network(
         self,
         experiences: "Dict[str, Tensor]",
@@ -317,16 +333,27 @@ class REINFORCE(Algorithm):
             raise ValueError(
                 f"`entropy_coeff` ({entropy_coeff}) must be in the interval [0, inf)"
             )
+        clip_param = self.clip_param()
+        if clip_param < 0.0:
+            raise ValueError(
+                f"`clip_param` ({clip_param}) must be in the interval [0, inf)"
+            )
         with (
             autocast(**self.enable_amp)
             if self.enable_amp["enabled"]
             else contextlib.suppress()
         ):
             advantage = advantages[mask]
+            old_log_prob = experiences["log_prob"][mask]
             self._policy_network(experiences["observation"], mask=mask)
             policy = self._policy_network.distribution
             log_prob = policy.log_prob(experiences["action"])[mask]
-            loss = -advantage * log_prob
+            ratio = (log_prob - old_log_prob).exp()
+            surrogate_loss = advantage * ratio
+            clipped_surrogate_loss = advantage * ratio.clamp(
+                1.0 - clip_param, 1.0 + clip_param
+            )
+            loss = -torch.min(surrogate_loss, clipped_surrogate_loss)
             entropy_bonus = None
             if entropy_coeff != 0.0:
                 entropy_bonus = -entropy_coeff * policy.entropy()[mask]
@@ -336,6 +363,7 @@ class REINFORCE(Algorithm):
         result = {
             "advantage": advantage.mean().item(),
             "log_prob": log_prob.mean().item(),
+            "old_log_prob": old_log_prob.mean().item(),
             "loss": loss.item(),
         }
         if entropy_bonus is not None:
@@ -343,35 +371,14 @@ class REINFORCE(Algorithm):
         result.update(optimize_result)
         return result
 
-    def _optimize_policy_network(self, loss: "Tensor") -> "Dict[str, Any]":
-        max_grad_l2_norm = self.max_grad_l2_norm()
-        if max_grad_l2_norm <= 0.0:
-            raise ValueError(
-                f"`max_grad_l2_norm` ({max_grad_l2_norm}) must be in the interval (0, inf]"
-            )
-        self._policy_network_optimizer.zero_grad(set_to_none=True)
-        self._grad_scaler.scale(loss).backward()
-        self._grad_scaler.unscale_(self._policy_network_optimizer)
-        grad_l2_norm = clip_grad_norm_(
-            self._policy_network.parameters(), max_grad_l2_norm
-        )
-        self._grad_scaler.step(self._policy_network_optimizer)
-        result = {
-            "lr": self._policy_network_optimizer.param_groups[0]["lr"],
-            "grad_l2_norm": min(grad_l2_norm.item(), max_grad_l2_norm),
-        }
-        if self._policy_network_optimizer_lr_scheduler is not None:
-            self._policy_network_optimizer_lr_scheduler.step()
-        return result
 
-
-class DistributedDataParallelREINFORCE(DistributedDataParallelAlgorithm):
-    """Distributed data parallel REINFORCE.
+class DistributedDataParallelPPO(DistributedDataParallelA2C):
+    """Proximal Policy Optimization.
 
     See Also
     --------
-    actorch.algorithms.reinforce.REINFORCE
+    actorch.algorithms.ppo.PPO
 
     """
 
-    _ALGORITHM_CLS = REINFORCE  # override
+    _ALGORITHM_CLS = PPO  # override

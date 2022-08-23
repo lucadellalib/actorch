@@ -51,7 +51,7 @@ repos:
         language: system
         entry: check-docstring-first
         types: [python]
-        exclude: (actorch/envs/utils|distributed_trainable|network|version)\.py
+        exclude: (actorch/envs/utils|algorithm|distributed_trainable|network|version)\.py
 
       - id: check-merge-conflict
         name: check-merge-conflict

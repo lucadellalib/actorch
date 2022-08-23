@@ -1,5 +1,17 @@
 # ==============================================================================
-# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# Copyright 2022 Luca Della Libera.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # ==============================================================================
 
 """Actor-Critic Kronecker-Factored Trust Region."""
@@ -46,6 +58,7 @@ class ACKTR(A2C):
     # override
     class Config(dict):
         """Keyword arguments expected in the configuration received by `setup`."""
+
         def __init__(
             self,
             train_env_builder: "Tunable[RefOrFutureRef[Callable[..., Union[Env, BatchedEnv]]]]",
@@ -54,8 +67,8 @@ class ACKTR(A2C):
             train_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             train_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             train_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            train_num_timesteps: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            train_num_episodes: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            train_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            train_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             eval_interval_iterations: "Tunable[RefOrFutureRef[Optional[int]]]" = 1,
             eval_env_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Union[Env, BatchedEnv]]]]]" = None,
             eval_env_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -63,8 +76,8 @@ class ACKTR(A2C):
             eval_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             eval_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             eval_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            eval_num_timesteps: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            eval_num_episodes: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             policy_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             policy_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -98,7 +111,9 @@ class ACKTR(A2C):
             num_return_steps: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 10,
             normalize_advantage: "Tunable[RefOrFutureRef[bool]]" = False,
             entropy_coeff: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.01,
-            max_grad_l2_norm: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = float("inf"),
+            max_grad_l2_norm: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = float(  # noqa: B008
+                "inf"
+            ),
             cumreward_window_size: "Tunable[RefOrFutureRef[int]]" = 100,
             seed: "Tunable[RefOrFutureRef[int]]" = 0,
             enable_amp: "Tunable[RefOrFutureRef[Union[bool, Dict[str, Any]]]]" = False,
@@ -119,8 +134,8 @@ class ACKTR(A2C):
                 train_agent_config=train_agent_config,
                 train_sampler_builder=train_sampler_builder,
                 train_sampler_config=train_sampler_config,
-                train_num_timesteps=train_num_timesteps,
-                train_num_episodes=train_num_episodes,
+                train_num_timesteps_per_iteration=train_num_timesteps_per_iteration,
+                train_num_episodes_per_iteration=train_num_episodes_per_iteration,
                 eval_interval_iterations=eval_interval_iterations,
                 eval_env_builder=eval_env_builder,
                 eval_env_config=eval_env_config,
@@ -128,8 +143,8 @@ class ACKTR(A2C):
                 eval_agent_config=eval_agent_config,
                 eval_sampler_builder=eval_sampler_builder,
                 eval_sampler_config=eval_sampler_config,
-                eval_num_timesteps=eval_num_timesteps,
-                eval_num_episodes=eval_num_episodes,
+                eval_num_timesteps_per_iteration=eval_num_timesteps_per_iteration,
+                eval_num_episodes_per_iteration=eval_num_episodes_per_iteration,
                 policy_network_preprocessors=policy_network_preprocessors,
                 policy_network_model_builder=policy_network_model_builder,
                 policy_network_model_config=policy_network_model_config,
@@ -180,28 +195,40 @@ class ACKTR(A2C):
         self.config = ACKTR.Config(**self.config)
         self.config["_accept_kwargs"] = True
         super().setup(config)
-        self._policy_network_preconditioner = self._build_policy_network_preconditioner()
-        self._policy_network_preconditioner_lr_scheduler = self._build_policy_network_preconditioner_lr_scheduler()
+        self._policy_network_preconditioner = (
+            self._build_policy_network_preconditioner()
+        )
+        self._policy_network_preconditioner_lr_scheduler = (
+            self._build_policy_network_preconditioner_lr_scheduler()
+        )
 
     # override
     @property
     def _checkpoint(self) -> "Dict[str, Any]":
         checkpoint = super()._checkpoint
-        checkpoint["policy_network_preconditioner"] = self._policy_network_preconditioner.state_dict(
+        checkpoint[
+            "policy_network_preconditioner"
+        ] = self._policy_network_preconditioner.state_dict(
             include_model=False,
             include_grad_scaler=False,
         )
         if self._policy_network_preconditioner_lr_scheduler is not None:
-            checkpoint["policy_network_preconditioner_lr_scheduler"] = self._policy_network_preconditioner_lr_scheduler.state_dict()
+            checkpoint[
+                "policy_network_preconditioner_lr_scheduler"
+            ] = self._policy_network_preconditioner_lr_scheduler.state_dict()
         return checkpoint
 
     # override
     @_checkpoint.setter
     def _checkpoint(self, value: "Dict[str, Any]") -> "None":
         super()._checkpoint = value
-        self._policy_network_preconditioner.load_state_dict(value["policy_network_preconditioner"])
+        self._policy_network_preconditioner.load_state_dict(
+            value["policy_network_preconditioner"]
+        )
         if "policy_network_preconditioner_lr_scheduler" in value:
-            self._policy_network_preconditioner_lr_scheduler.load_state_dict(value["policy_network_preconditioner_lr_scheduler"])
+            self._policy_network_preconditioner_lr_scheduler.load_state_dict(
+                value["policy_network_preconditioner_lr_scheduler"]
+            )
 
     def _build_policy_network_preconditioner(self) -> "Optimizer":
         if self.policy_network_preconditioner_builder is None:
@@ -224,7 +251,9 @@ class ACKTR(A2C):
             **self.policy_network_preconditioner_config,
         )
 
-    def _build_policy_network_preconditioner_lr_scheduler(self) -> "Optional[lr_scheduler._LRScheduler]":
+    def _build_policy_network_preconditioner_lr_scheduler(
+        self,
+    ) -> "Optional[lr_scheduler._LRScheduler]":
         if self.policy_network_preconditioner_lr_scheduler_builder is None:
             return
         if self.policy_network_preconditioner_lr_scheduler_config is None:
@@ -244,7 +273,9 @@ class ACKTR(A2C):
         self._policy_network_optimizer.zero_grad(set_to_none=True)
         self._grad_scaler.scale(loss).backward()
         self._grad_scaler.unscale_(self._policy_network_optimizer)
-        grad_l2_norm = clip_grad_norm_(self._policy_network.parameters(), max_grad_l2_norm)
+        grad_l2_norm = clip_grad_norm_(
+            self._policy_network.parameters(), max_grad_l2_norm
+        )
         self._policy_network_preconditioner.step()
         self._grad_scaler.step(self._policy_network_optimizer)
         result = {
@@ -264,4 +295,5 @@ class DistributedDataParallelACKTR(DistributedDataParallelA2C):
     actorch.algorithms.acktr.ACKTR
 
     """
+
     _ALGORITHM_CLS = ACKTR  # override

@@ -5,7 +5,12 @@
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
 Welcome to `actorch`, a deep reinforcement learning framework for fast prototyping based on
-[PyTorch](https://pytorch.org).
+[PyTorch](https://pytorch.org). The following algorithms are included:
+
+- [REINFORCE](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
+- [Advantage Actor-Critic (A2C)](https://arxiv.org/abs/1602.01783)
+- [Actor-Critic Kronecker-Factored Trust Region (ACKTR)](https://arxiv.org/abs/1708.05144)
+- [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 
 ---------------------------------------------------------------------------------------------------------
 
@@ -35,7 +40,7 @@ Welcome to `actorch`, a deep reinforcement learning framework for fast prototypi
 For Windows, make sure the latest [Visual C++ runtime](https://support.microsoft.com/en-us/help/2977003/the-latest-supported-visual-c-downloads)
 is installed.
 
-### Using Pip [NOT AVAILABLE YET]
+### Using Pip
 
 First of all, install [Python](https://www.python.org). Open a terminal and run:
 
@@ -144,10 +149,10 @@ experiment_params = ExperimentParams(
             config,
             num_workers=2,
         ),
-        train_num_episodes=10,
+        train_num_episodes_per_iteration=10,
         eval_interval_iterations=10,
         eval_env_config={"render_mode": None},
-        eval_num_episodes=10,
+        eval_num_episodes_per_iteration=10,
         policy_network_model_builder=FCNet,
         policy_network_model_config={
             "torso_fc_configs": [

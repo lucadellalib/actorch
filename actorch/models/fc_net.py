@@ -1,5 +1,17 @@
 # ==============================================================================
-# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# Copyright 2022 Luca Della Libera.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # ==============================================================================
 
 """Fully connected neural network model."""
@@ -148,8 +160,9 @@ class FCNet(Hydra):
         states: "Dict[str, Tensor]",
         mask: "Tensor",
     ) -> "Tuple[Tensor, Dict[str, Tensor]]":
-        input = input[mask].flatten(start_dim=1)
-        masked_output = self.torso(input)
+        masked_input = input[mask]
+        masked_input = masked_input.reshape(masked_input.shape[0], -1)
+        masked_output = self.torso(masked_input)
         out_shape = masked_output.shape[1:]
         output = torch.zeros(
             mask.shape + out_shape,
@@ -167,7 +180,8 @@ class FCNet(Hydra):
         mask: "Tensor",
     ) -> "Tuple[Dict[str, Tensor], Dict[str, Tensor]]":
         outputs = {}
-        masked_input = input[mask].flatten(start_dim=1)
+        masked_input = input[mask]
+        masked_input = masked_input.reshape(masked_input.shape[0], -1)
         for name, out_shape in self.out_shapes.items():
             masked_output = self.heads[name](masked_input)
             masked_output = masked_output.reshape(-1, *out_shape)
@@ -190,6 +204,6 @@ class FCNet(Hydra):
             name: torch.rand(batch_shape + in_shape, device=device)
             for name, in_shape in self.in_shapes.items()
         }
-        states = {}
+        states: "Dict[str, Tensor]" = {}
         mask = torch.ones(batch_shape, dtype=torch.bool, device=device)
         return inputs, states, mask

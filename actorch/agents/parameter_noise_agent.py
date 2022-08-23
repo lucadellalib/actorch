@@ -1,5 +1,17 @@
 # ==============================================================================
-# Copyright 2022 Luca Della Libera. All Rights Reserved.
+# Copyright 2022 Luca Della Libera.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # ==============================================================================
 
 """Parameter noise agent."""
@@ -134,7 +146,7 @@ class ParameterNoiseAgent(StochasticAgent):
         policy_network: "PolicyNetwork",
         observation_space: "Space",
         action_space: "Space",
-        compute_policy_distance_fn: "Callable[[Distribution, Distribution], float]",
+        policy_distance_fn: "Callable[[Distribution, Distribution], float]",
         clip_action: "bool" = True,
         device: "Union[device, str]" = "cpu",
         num_random_timesteps: "int" = 0,
@@ -152,7 +164,7 @@ class ParameterNoiseAgent(StochasticAgent):
             The (possibly batched) observation space.
         action_space:
             The (possibly batched) action space.
-        compute_policy_distance_fn:
+        policy_distance_fn:
             The function that computes the distance between a
             policy and a noisy policy. It receives as arguments
             the policy and the noisy policy and returns the
@@ -196,7 +208,7 @@ class ParameterNoiseAgent(StochasticAgent):
             raise ValueError(
                 f"`adaption_coeff` ({adaption_coeff}) must be in the interval (1, inf)"
             )
-        self.compute_policy_distance_fn = compute_policy_distance_fn
+        self.policy_distance_fn = policy_distance_fn
         self.initial_stddev = initial_stddev
         self.target_stddev = target_stddev
         self.adaption_coeff = adaption_coeff
@@ -255,7 +267,7 @@ class ParameterNoiseAgent(StochasticAgent):
         # Restore state
         self._policy_network_state = policy_network_state_backup
         # Compute policy distance
-        policy_distance = self.compute_policy_distance_fn(policy, noisy_policy)
+        policy_distance = self.policy_distance_fn(policy, noisy_policy)
         if policy_distance < self.target_stddev:
             self._stddev *= self.adaption_coeff
         else:
@@ -268,7 +280,7 @@ class ParameterNoiseAgent(StochasticAgent):
             f"(policy_network: {self.policy_network}, "
             f"observation_space: {self.observation_space}, "
             f"action_space: {self.action_space}, "
-            f"compute_policy_distance_fn: {self.compute_policy_distance_fn}, "
+            f"policy_distance_fn: {self.policy_distance_fn}, "
             f"clip_action: {self.clip_action}, "
             f"device: {self.device}, "
             f"num_random_timesteps: {self.num_random_timesteps}, "
