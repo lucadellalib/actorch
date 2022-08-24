@@ -5,7 +5,7 @@ gym>=0.25.0
 numpy>=1.19.5
 psutil>=5.7.0
 PyYAML>=5.3.1
-ray[tune]>=1.13.0
+ray[tune]>=1.13.0,<2.*
 scipy>=1.4.1
 tensorboard>=2.6.0
 -f https://download.pytorch.org/whl/torch_stable.html  # PyTorch installation on Windows

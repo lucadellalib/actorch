@@ -43,7 +43,7 @@ import torch
 import torch.nn.functional as F
 from gym import Env, spaces
 from numpy import ndarray
-from ray.train.session import world_rank
+from ray.train import world_rank
 from ray.train.torch import accelerate, prepare_data_loader
 from ray.tune import Trainable
 from ray.tune import result as tune_result

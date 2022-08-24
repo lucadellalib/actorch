@@ -28,7 +28,7 @@ from typing import Any, Callable, Dict, Generic, Optional, Sequence, TypeVar, Un
 import GPUtil
 import psutil
 import yaml
-from ray.tune.logger import SafeFallbackEncoder
+from ray.tune.utils.util import SafeFallbackEncoder
 
 
 __all__ = [
