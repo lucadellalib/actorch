@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Proximal Policy Optimization."""
+"""Advantage-Weighted Regression."""
 
 import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -33,6 +33,8 @@ from actorch.agents import Agent
 from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
 from actorch.algorithms.value_estimation import lambda_return
+from actorch.buffers import Buffer
+from actorch.datasets import BufferDataset
 from actorch.envs import BatchedEnv
 from actorch.models import Model
 from actorch.networks import DistributionParametrization, NormalizingFlow, Processor
@@ -41,19 +43,20 @@ from actorch.schedules import ConstantSchedule, Schedule
 
 
 __all__ = [
-    "DistributedDataParallelPPO",
-    "PPO",
+    "AWR",
+    "DistributedDataParallelAWR",
 ]
 
 
-class PPO(A2C):
-    """Proximal Policy Optimization.
+class AWR(A2C):
+    """Advantage-Weighted Regression.
 
     References
     ----------
-    .. [1] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov.
-           "Proximal Policy Optimization Algorithms". In: arXiv. 2017.
-           URL: https://arxiv.org/abs/1707.06347
+    .. [1] X. B. Peng, A. Kumar, G. Zhang, and S. Levine. "Advantage-Weighted
+           Regression: Simple and Scalable Off-Policy Reinforcement Learning".
+           In: arXiv. 2019.
+           URL: https://arxiv.org/abs/1910.00177
 
     """
 
@@ -103,13 +106,17 @@ class PPO(A2C):
             value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
             value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            buffer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Buffer]]]]" = None,
+            buffer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            buffer_checkpoint: "Tunable[RefOrFutureRef[bool]]" = False,
             dataloader_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., DataLoader]]]]" = None,
             dataloader_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             discount: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.99,
             trace_decay: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.95,
-            num_epochs: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 10,
-            minibatch_size: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 64,
-            ratio_clip: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.2,
+            num_updates_per_iter: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 1000,
+            batch_size: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 128,
+            weight_clip: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 20.0,
+            temperature: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 1.0,
             normalize_advantage: "Tunable[RefOrFutureRef[bool]]" = False,
             entropy_coeff: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.01,
             max_grad_l2_norm: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = float(  # noqa: B008
@@ -169,13 +176,17 @@ class PPO(A2C):
                 value_network_optimizer_config=value_network_optimizer_config,
                 value_network_optimizer_lr_scheduler_builder=value_network_optimizer_lr_scheduler_builder,
                 value_network_optimizer_lr_scheduler_config=value_network_optimizer_lr_scheduler_config,
+                buffer_builder=buffer_builder,
+                buffer_config=buffer_config,
+                buffer_checkpoint=buffer_checkpoint,
                 dataloader_builder=dataloader_builder,
                 dataloader_config=dataloader_config,
                 discount=discount,
                 trace_decay=trace_decay,
-                num_epochs=num_epochs,
-                minibatch_size=minibatch_size,
-                ratio_clip=ratio_clip,
+                num_updates_per_iter=num_updates_per_iter,
+                batch_size=batch_size,
+                weight_clip=weight_clip,
+                temperature=temperature,
                 normalize_advantage=normalize_advantage,
                 entropy_coeff=entropy_coeff,
                 max_grad_l2_norm=max_grad_l2_norm,
@@ -192,26 +203,29 @@ class PPO(A2C):
 
     # override
     def setup(self, config: "Dict[str, Any]") -> "None":
-        self.config = PPO.Config(**self.config)
+        self.config = AWR.Config(**self.config)
         self.config["_accept_kwargs"] = True
         super().setup(config)
         if not isinstance(self.trace_decay, Schedule):
             self.trace_decay = ConstantSchedule(self.trace_decay)
-        if not isinstance(self.num_epochs, Schedule):
-            self.num_epochs = ConstantSchedule(self.num_epochs)
-        if not isinstance(self.minibatch_size, Schedule):
-            self.minibatch_size = ConstantSchedule(self.minibatch_size)
-        if not isinstance(self.ratio_clip, Schedule):
-            self.ratio_clip = ConstantSchedule(self.ratio_clip)
+        if not isinstance(self.num_updates_per_iter, Schedule):
+            self.num_updates_per_iter = ConstantSchedule(self.num_updates_per_iter)
+        if not isinstance(self.batch_size, Schedule):
+            self.batch_size = ConstantSchedule(self.batch_size)
+        if not isinstance(self.weight_clip, Schedule):
+            self.weight_clip = ConstantSchedule(self.weight_clip)
+        if not isinstance(self.temperature, Schedule):
+            self.temperature = ConstantSchedule(self.temperature)
 
     # override
     @property
     def _checkpoint(self) -> "Dict[str, Any]":
         checkpoint = super()._checkpoint
         checkpoint["trace_decay"] = self.trace_decay.state_dict()
-        checkpoint["num_epochs"] = self.num_epochs.state_dict()
-        checkpoint["minibatch_size"] = self.minibatch_size.state_dict()
-        checkpoint["ratio_clip"] = self.ratio_clip.state_dict()
+        checkpoint["num_updates_per_iter"] = self.num_updates_per_iter.state_dict()
+        checkpoint["batch_size"] = self.batch_size.state_dict()
+        checkpoint["weight_clip"] = self.weight_clip.state_dict()
+        checkpoint["temperature"] = self.temperature.state_dict()
         return checkpoint
 
     # override
@@ -219,17 +233,35 @@ class PPO(A2C):
     def _checkpoint(self, value: "Dict[str, Any]") -> "None":
         super()._checkpoint = value
         self.trace_decay.load_state_dict(value["trace_decay"])
-        self.num_epochs.load_state_dict(value["num_epochs"])
-        self.minibatch_size.load_state_dict(value["minibatch_size"])
-        self.ratio_clip.load_state_dict(value["ratio_clip"])
+        self.num_updates_per_iter.load_state_dict(value["num_updates_per_iter"])
+        self.batch_size.load_state_dict(value["batch_size"])
+        self.weight_clip.load_state_dict(value["weight_clip"])
+        self.temperature.load_state_dict(value["temperature"])
+
+    # override
+    def _build_buffer(self) -> "Buffer":
+        if self.buffer_config is None:
+            self.buffer_config = {"capacity": int(1e5)}
+        return super()._build_buffer()
+
+    # override
+    def _build_buffer_dataset(self) -> "BufferDataset":
+        if self.buffer_dataset_config is None:
+            self.buffer_dataset_config = {
+                "batch_size": self.batch_size,
+                "max_trajectory_length": float("inf"),
+                "num_iters": self.num_updates_per_iter,
+            }
+        return super()._build_buffer_dataset()
 
     # override
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
         self.trace_decay.step()
-        self.num_epochs.step()
-        self.minibatch_size.step()
-        self.ratio_clip.step()
+        self.num_updates_per_iter.step()
+        self.batch_size.step()
+        self.weight_clip.step()
+        self.temperature.step()
         return result
 
     # override
@@ -239,19 +271,6 @@ class PPO(A2C):
         is_weight: "Tensor",
         mask: "Tensor",
     ) -> "Tuple[Dict[str, Any], Optional[ndarray]]":
-        minibatch_size = self.minibatch_size()
-        if minibatch_size < 1 or not float(minibatch_size).is_integer():
-            raise ValueError(
-                f"`minibatch_size` ({minibatch_size}) must be in the integer interval [1, inf)"
-            )
-        minibatch_size = int(minibatch_size)
-        num_epochs = self.num_epochs()
-        if num_epochs < 1 or not float(num_epochs).is_integer():
-            raise ValueError(
-                f"`num_epochs` ({num_epochs}) must be in the integer interval [1, inf)"
-            )
-        num_epochs = int(num_epochs)
-
         result = {}
 
         with (
@@ -259,66 +278,47 @@ class PPO(A2C):
             if self.enable_amp["enabled"]
             else contextlib.suppress()
         ):
-            with torch.no_grad():
-                state_values, _ = self._value_network(
-                    experiences["observation"], mask=mask
-                )
+            state_values, _ = self._value_network(experiences["observation"], mask=mask)
             # Discard next observation
             experiences["observation"] = experiences["observation"][:, :-1, ...]
             mask = mask[:, 1:]
-            targets, advantages = lambda_return(
-                state_values,
-                experiences["reward"],
-                experiences["terminal"],
-                mask,
-                self.discount(),
-                self.trace_decay(),
-            )
+            with torch.no_grad():
+                targets, advantages = lambda_return(
+                    state_values,
+                    experiences["reward"],
+                    experiences["terminal"],
+                    mask,
+                    self.discount(),
+                    self.trace_decay(),
+                )
+            if self.normalize_advantage:
+                length = mask.sum(dim=1, keepdim=True)
+                advantages_mean = advantages.sum(dim=1, keepdim=True) / length
+                advantages -= advantages_mean
+                advantages *= mask
+                advantages_stddev = (
+                    ((advantages ** 2).sum(dim=1, keepdim=True) / length)
+                    .sqrt()
+                    .clamp(min=1e-6)
+                )
+                advantages /= advantages_stddev
+                advantages *= mask
 
-        args = [targets, advantages, mask, *experiences.values()]
-        for i, v in enumerate(args):
-            args[i] = v.movedim(0, 1)
-        dataset = TensorDataset(*args)
-        dataloader = DataLoader(dataset, batch_size=minibatch_size)
-        priority = None
-        for _ in range(num_epochs):
-            for batch in dataloader:
-                for i, v in enumerate(batch):
-                    batch[i] = v.movedim(0, 1)
-                targets_batch, advantages_batch, mask_batch = batch[:3]
-                experiences_batch = {k: v for k, v in zip(experiences, batch[3:])}
-                if self.normalize_advantage:
-                    length_batch = mask_batch.sum(dim=1, keepdim=True)
-                    advantages_batch_mean = (
-                        advantages_batch.sum(dim=1, keepdim=True) / length_batch
-                    )
-                    advantages_batch -= advantages_batch_mean
-                    advantages_batch *= mask_batch
-                    advantages_batch_stddev = (
-                        (
-                            (advantages_batch**2).sum(dim=1, keepdim=True)
-                            / length_batch
-                        )
-                        .sqrt()
-                        .clamp(min=1e-6)
-                    )
-                    advantages_batch /= advantages_batch_stddev
-                    advantages_batch *= mask_batch
-                state_values_batch, _ = self._value_network(
-                    experiences_batch["observation"], mask=mask_batch
-                )
-                result["value_network"], priority = self._train_on_batch_value_network(
-                    state_values_batch,
-                    targets_batch,
-                    is_weight,
-                    mask_batch,
-                )
-                result["policy_network"] = self._train_on_batch_policy_network(
-                    experiences_batch,
-                    advantages_batch,
-                    mask_batch,
-                )
-                self._grad_scaler.update()
+        # Discard next state value
+        state_values = state_values[:, :-1]
+
+        result["value_network"], priority = self._train_on_batch_value_network(
+            state_values,
+            targets,
+            is_weight,
+            mask,
+        )
+        result["policy_network"] = self._train_on_batch_policy_network(
+            experiences,
+            advantages,
+            mask,
+        )
+        self._grad_scaler.update()
         return result, priority
 
     # override
@@ -333,10 +333,10 @@ class PPO(A2C):
             raise ValueError(
                 f"`entropy_coeff` ({entropy_coeff}) must be in the interval [0, inf)"
             )
-        ratio_clip = self.ratio_clip()
-        if ratio_clip < 0.0:
+        clip_param = self.clip_param()
+        if clip_param < 0.0:
             raise ValueError(
-                f"`ratio_clip` ({ratio_clip}) must be in the interval [0, inf)"
+                f"`clip_param` ({clip_param}) must be in the interval [0, inf)"
             )
         with (
             autocast(**self.enable_amp)
@@ -351,7 +351,7 @@ class PPO(A2C):
             ratio = (log_prob - old_log_prob).exp()
             surrogate_loss = advantage * ratio
             clipped_surrogate_loss = advantage * ratio.clamp(
-                1.0 - ratio_clip, 1.0 + ratio_clip
+                1.0 - clip_param, 1.0 + clip_param
             )
             loss = -torch.min(surrogate_loss, clipped_surrogate_loss)
             entropy_bonus = None
@@ -372,13 +372,13 @@ class PPO(A2C):
         return result
 
 
-class DistributedDataParallelPPO(DistributedDataParallelA2C):
-    """Distributed data parallel Proximal Policy Optimization.
+class DistributedDataParallelAWR(DistributedDataParallelA2C):
+    """Distributed data parallel Advantage-Weighted Regression.
 
     See Also
     --------
-    actorch.algorithms.ppo.PPO
+    actorch.algorithms.awr.AWR
 
     """
 
-    _ALGORITHM_CLS = PPO  # override
+    _ALGORITHM_CLS = AWR  # override

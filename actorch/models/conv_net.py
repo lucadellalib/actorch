@@ -67,7 +67,7 @@ class ConvNet(FCNet):
             torso convolutional layers), i.e. a callable that
             receives keyword arguments from a configuration
             and returns an activation.
-            Default to ``nn.ReLU``.
+            Default to ``torch.nn.ReLU``.
         torso_activation_config:
             The torso activation configuration
             (the same for all torso fully connected layers).
@@ -82,7 +82,7 @@ class ConvNet(FCNet):
             input-dependent heads), i.e. a callable that
             receives keyword arguments from a configuration
             and returns an activation.
-            Default to ``nn.Identity``.
+            Default to ``torch.nn.Identity``.
         head_activation_config:
             The head activation configuration
             (the same for all input-dependent heads).

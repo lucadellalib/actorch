@@ -364,10 +364,10 @@ class KFAC(Optimizer):
         kl_clip:
             The Kullback-Leibler divergence clipping parameter for gradient scaling.
         factor_update_freq:
-            The number of iterations between computing and updating the exponential moving
-            average of the Kronecker factors.
+            Compute the Kronecker factors and update their exponential moving average
+            every `factor_update_freq` iterations.
         kfac_update_freq:
-            The number of iterations between applying gradient preconditioning.
+            Apply gradient preconditioning every `kfac_update_freq` iterations.
         grad_scaler:
             The gradient scaler for automatic mixed precision training.
         epsilon:

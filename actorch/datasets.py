@@ -41,7 +41,7 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
         "buffer",
         "batch_size",
         "max_trajectory_length",
-        "num_iterations",
+        "num_iters",
     ]  # override
 
     def __init__(
@@ -49,7 +49,7 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
         buffer: "Buffer",
         batch_size: "Union[int, Schedule]",
         max_trajectory_length: "Union[int, float, Schedule]",
-        num_iterations: "int",
+        num_iters: "int",
     ) -> "None":
         """Initialize the object.
 
@@ -63,18 +63,18 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
         max_trajectory_length:
             The schedule for argument `max_trajectory_length' of `buffer.sample`.
             If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
-        num_iterations:
+        num_iters:
             The number of iterations for which `buffer.sample` is called.
 
         Raises
         ------
         ValueError
-            If `num_iterations` is not in the integer interval [1, inf).
+            If `num_iters` is not in the integer interval [1, inf).
 
         """
-        if num_iterations < 1 or not float(num_iterations).is_integer():
+        if num_iters < 1 or not float(num_iters).is_integer():
             raise ValueError(
-                f"`num_iterations` ({num_iterations}) must be in the integer interval [1, inf)"
+                f"`num_iters` ({num_iters}) must be in the integer interval [1, inf)"
             )
         self.buffer = buffer
         self.batch_size = (
@@ -87,7 +87,7 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
             if isinstance(max_trajectory_length, Schedule)
             else ConstantSchedule(max_trajectory_length)
         )
-        self.num_iterations = int(num_iterations)
+        self.num_iters = int(num_iters)
         self._schedules = {
             "batch_size": self.batch_size,
             "max_trajectory_length": self.max_trajectory_length,
@@ -111,11 +111,11 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
         max_trajectory_length = self.max_trajectory_length()
         return (
             self.buffer.sample(batch_size, max_trajectory_length)
-            for _ in range(self.num_iterations)
+            for _ in range(self.num_iters)
         )
 
     def __len__(self) -> "int":
-        return self.num_iterations
+        return self.num_iters
 
     def __repr__(self) -> "str":
         return (
@@ -123,5 +123,5 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
             f"(buffer: {self.buffer}, "
             f"batch_size: {self.batch_size}, "
             f"max_trajectory_length: {self.max_trajectory_length}, "
-            f"num_iterations: {self.num_iterations})"
+            f"num_iters: {self.num_iters})"
         )

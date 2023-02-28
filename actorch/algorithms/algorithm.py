@@ -126,17 +126,17 @@ class Algorithm(ABC, Trainable):
             train_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             train_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             train_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            train_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            train_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            eval_interval_iterations: "Tunable[RefOrFutureRef[Optional[int]]]" = 1,
+            train_num_timesteps_per_iter: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            train_num_episodes_per_iter: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_freq: "Tunable[RefOrFutureRef[Optional[int]]]" = 1,
             eval_env_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Union[Env, BatchedEnv]]]]]" = None,
             eval_env_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             eval_agent_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Agent]]]]" = None,
             eval_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             eval_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             eval_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            eval_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            eval_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_timesteps_per_iter: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_episodes_per_iter: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             policy_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             policy_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -199,20 +199,20 @@ class Algorithm(ABC, Trainable):
                 Arguments `env` and `agent` are set internally.
                 Default to ``{"callbacks": []}`` if
                 `train_sampler_builder` is None, ``{}`` otherwise.
-            train_num_timesteps_per_iteration:
+            train_num_timesteps_per_iter:
                 The schedule for the number of timesteps to sample from
                 the training environment at each training iteration.
                 If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `train_num_episodes_per_iteration` is given.
-            train_num_episodes_per_iteration:
+                Must be None if `train_num_episodes_per_iter` is given.
+            train_num_episodes_per_iter:
                 The schedule for the number of episodes to sample from
                 the training environment at each training iteration.
                 If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `train_num_timesteps_per_iteration` is given.
-                Default to 1 if `train_num_timesteps_per_iteration` is None.
-            eval_interval_iterations:
-                Run evaluation every `eval_interval_iterations` training
-                iterations. Set to None to skip evaluation.
+                Must be None if `train_num_timesteps_per_iter` is given.
+                Default to 1 if `train_num_timesteps_per_iter` is None.
+            eval_freq:
+                Run evaluation every `eval_freq` training iterations.
+                Set to None to skip evaluation.
             eval_env_builder:
                 The (possibly batched) evaluation environment builder, i.e.
                 a callable that receives keyword arguments from a (possibly
@@ -245,17 +245,17 @@ class Algorithm(ABC, Trainable):
                 Arguments `env` and `agent` are set internally.
                 Default to ``{"callbacks": []}`` if
                 `eval_sampler_builder` is None, ``{}`` otherwise.
-            eval_num_timesteps_per_iteration:
+            eval_num_timesteps_per_iter:
                 The schedule for the number of timesteps to sample from
                 the evaluation environment at each training iteration.
                 If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `eval_num_episodes_per_iteration` is given.
-            eval_num_episodes_per_iteration:
+                Must be None if `eval_num_episodes_per_iter` is given.
+            eval_num_episodes_per_iter:
                 The schedule for the number of episodes to sample from
                 the evaluation environment at each training iteration.
                 If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
-                Must be None if `eval_num_timesteps_per_iteration` is given.
-                Default to 1 if `eval_num_timesteps_per_iteration` is None.
+                Must be None if `eval_num_timesteps_per_iter` is given.
+                Default to 1 if `eval_num_timesteps_per_iter` is None.
             policy_network_preprocessors:
                 The policy network preprocessors, i.e. a dict that maps
                 names of the policy network input modalities to their
@@ -345,7 +345,7 @@ class Algorithm(ABC, Trainable):
                 Default to ``{
                     "batch_size": 1,
                     "max_trajectory_length": 1,
-                    "num_iterations": 1,
+                    "num_iters": 1,
                 }`` if `buffer_dataset_builder` is None, ``{}`` otherwise.
             dataloader_builder:
                 The dataloader builder, i.e. a callable that receives
@@ -415,17 +415,17 @@ class Algorithm(ABC, Trainable):
                 train_agent_config=train_agent_config,
                 train_sampler_builder=train_sampler_builder,
                 train_sampler_config=train_sampler_config,
-                train_num_timesteps_per_iteration=train_num_timesteps_per_iteration,
-                train_num_episodes_per_iteration=train_num_episodes_per_iteration,
-                eval_interval_iterations=eval_interval_iterations,
+                train_num_timesteps_per_iter=train_num_timesteps_per_iter,
+                train_num_episodes_per_iter=train_num_episodes_per_iter,
+                eval_freq=eval_freq,
                 eval_env_builder=eval_env_builder,
                 eval_env_config=eval_env_config,
                 eval_agent_builder=eval_agent_builder,
                 eval_agent_config=eval_agent_config,
                 eval_sampler_builder=eval_sampler_builder,
                 eval_sampler_config=eval_sampler_config,
-                eval_num_timesteps_per_iteration=eval_num_timesteps_per_iteration,
-                eval_num_episodes_per_iteration=eval_num_episodes_per_iteration,
+                eval_num_timesteps_per_iter=eval_num_timesteps_per_iter,
+                eval_num_episodes_per_iter=eval_num_episodes_per_iter,
                 policy_network_preprocessors=policy_network_preprocessors,
                 policy_network_model_builder=policy_network_model_builder,
                 policy_network_model_config=policy_network_model_config,
@@ -470,28 +470,28 @@ class Algorithm(ABC, Trainable):
 
         self._train_env = self._build_train_env()
         self._eval_env = None
-        if self.eval_interval_iterations is not None:
+        if self.eval_freq is not None:
             if (
-                self.eval_interval_iterations < 1
-                or not float(self.eval_interval_iterations).is_integer()
+                self.eval_freq < 1
+                or not float(self.eval_freq).is_integer()
             ):
                 raise ValueError(
-                    f"`eval_interval_iterations` ({self.eval_interval_iterations}) "
+                    f"`eval_freq` ({self.eval_freq}) "
                     f"must be in the integer interval [1, inf)"
                 )
-            self.eval_interval_iterations = int(self.eval_interval_iterations)
+            self.eval_freq = int(self.eval_freq)
             self._eval_env = self._build_eval_env()
 
         self._policy_network = self._build_policy_network()
 
         self._train_agent = self._build_train_agent()
         self._eval_agent = None
-        if self.eval_interval_iterations is not None:
+        if self.eval_freq is not None:
             self._eval_agent = self._build_eval_agent()
 
         self._train_sampler = self._build_train_sampler()
         self._eval_sampler = None
-        if self.eval_interval_iterations is not None:
+        if self.eval_freq is not None:
             self._eval_sampler = self._build_eval_sampler()
 
         self._buffer = self._build_buffer()
@@ -543,8 +543,8 @@ class Algorithm(ABC, Trainable):
 
         result["train"] = self._train_step()
 
-        if self.eval_interval_iterations is not None:
-            if self.iteration % self.eval_interval_iterations == 0:
+        if self.eval_freq is not None:
+            if self.iteration % self.eval_freq == 0:
                 result["eval"] = self._eval_step()
 
         if self._cumrewards:
@@ -604,23 +604,23 @@ class Algorithm(ABC, Trainable):
             "buffer_dataset": self._buffer_dataset.state_dict(exclude_keys=["buffer"]),
             "cumrewards": np.asarray(self._cumrewards),
         }
-        if self.train_num_timesteps_per_iteration is not None:
+        if self.train_num_timesteps_per_iter is not None:
             checkpoint[
-                "train_num_timesteps_per_iteration"
-            ] = self.train_num_timesteps_per_iteration.state_dict()
-        if self.train_num_episodes_per_iteration is not None:
+                "train_num_timesteps_per_iter"
+            ] = self.train_num_timesteps_per_iter.state_dict()
+        if self.train_num_episodes_per_iter is not None:
             checkpoint[
-                "train_num_episodes_per_iteration"
-            ] = self.train_num_episodes_per_iteration.state_dict()
-        if self.eval_interval_iterations is not None:
-            if self.eval_num_timesteps_per_iteration is not None:
+                "train_num_episodes_per_iter"
+            ] = self.train_num_episodes_per_iter.state_dict()
+        if self.eval_freq is not None:
+            if self.eval_num_timesteps_per_iter is not None:
                 checkpoint[
-                    "eval_num_timesteps_per_iteration"
-                ] = self.eval_num_timesteps_per_iteration.state_dict()
-            if self.eval_num_episodes_per_iteration is not None:
+                    "eval_num_timesteps_per_iter"
+                ] = self.eval_num_timesteps_per_iter.state_dict()
+            if self.eval_num_episodes_per_iter is not None:
                 checkpoint[
-                    "eval_num_episodes_per_iteration"
-                ] = self.eval_num_episodes_per_iteration.state_dict()
+                    "eval_num_episodes_per_iter"
+                ] = self.eval_num_episodes_per_iter.state_dict()
             checkpoint["eval_agent"] = self._eval_agent.state_dict(
                 exclude_keys=["policy_network"]
             )
@@ -634,21 +634,21 @@ class Algorithm(ABC, Trainable):
         self._policy_network.load_state_dict(value["policy_network"])
         self._buffer_dataset.load_state_dict(value["buffer_dataset"], strict=False)
         self._cumrewards = deque(value["cumrewards"])
-        if "train_num_timesteps_per_iteration" in value:
-            self.train_num_timesteps_per_iteration.load_state_dict(
-                value["train_num_timesteps_per_iteration"]
+        if "train_num_timesteps_per_iter" in value:
+            self.train_num_timesteps_per_iter.load_state_dict(
+                value["train_num_timesteps_per_iter"]
             )
-        if "train_num_episodes_per_iteration" in value:
-            self.train_num_episodes_per_iteration.load_state_dict(
-                value["train_num_episodes_per_iteration"]
+        if "train_num_episodes_per_iter" in value:
+            self.train_num_episodes_per_iter.load_state_dict(
+                value["train_num_episodes_per_iter"]
             )
-        if "eval_num_timesteps_per_iteration" in value:
-            self.eval_num_timesteps_per_iteration.load_state_dict(
-                value["eval_num_timesteps_per_iteration"]
+        if "eval_num_timesteps_per_iter" in value:
+            self.eval_num_timesteps_per_iter.load_state_dict(
+                value["eval_num_timesteps_per_iter"]
             )
-        if "eval_num_episodes_per_iteration" in value:
-            self.eval_num_episodes_per_iteration.load_state_dict(
-                value["eval_num_episodes_per_iteration"]
+        if "eval_num_episodes_per_iter" in value:
+            self.eval_num_episodes_per_iter.load_state_dict(
+                value["eval_num_episodes_per_iter"]
             )
         if "eval_agent" in value:
             self._eval_agent.load_state_dict(value["eval_agent"], strict=False)
@@ -889,19 +889,19 @@ class Algorithm(ABC, Trainable):
         if self.train_sampler_config is None:
             self.train_sampler_config = {}
         if (
-            self.train_num_timesteps_per_iteration is None
-            and self.train_num_episodes_per_iteration is None
+            self.train_num_timesteps_per_iter is None
+            and self.train_num_episodes_per_iter is None
         ):
-            self.train_num_episodes_per_iteration = 1
-        if self.train_num_timesteps_per_iteration is not None:
-            if not isinstance(self.train_num_timesteps_per_iteration, Schedule):
-                self.train_num_timesteps_per_iteration = ConstantSchedule(
-                    self.train_num_timesteps_per_iteration
+            self.train_num_episodes_per_iter = 1
+        if self.train_num_timesteps_per_iter is not None:
+            if not isinstance(self.train_num_timesteps_per_iter, Schedule):
+                self.train_num_timesteps_per_iter = ConstantSchedule(
+                    self.train_num_timesteps_per_iter
                 )
-        if self.train_num_episodes_per_iteration is not None:
-            if not isinstance(self.train_num_episodes_per_iteration, Schedule):
-                self.train_num_episodes_per_iteration = ConstantSchedule(
-                    self.train_num_episodes_per_iteration
+        if self.train_num_episodes_per_iter is not None:
+            if not isinstance(self.train_num_episodes_per_iter, Schedule):
+                self.train_num_episodes_per_iter = ConstantSchedule(
+                    self.train_num_episodes_per_iter
                 )
         return self.train_sampler_builder(
             self._train_env,
@@ -917,19 +917,19 @@ class Algorithm(ABC, Trainable):
         if self.eval_sampler_config is None:
             self.eval_sampler_config = {}
         if (
-            self.eval_num_timesteps_per_iteration is None
-            and self.eval_num_episodes_per_iteration is None
+            self.eval_num_timesteps_per_iter is None
+            and self.eval_num_episodes_per_iter is None
         ):
-            self.eval_num_episodes_per_iteration = 1
-        if self.eval_num_timesteps_per_iteration is not None:
-            if not isinstance(self.eval_num_timesteps_per_iteration, Schedule):
-                self.eval_num_timesteps_per_iteration = ConstantSchedule(
-                    self.eval_num_timesteps_per_iteration
+            self.eval_num_episodes_per_iter = 1
+        if self.eval_num_timesteps_per_iter is not None:
+            if not isinstance(self.eval_num_timesteps_per_iter, Schedule):
+                self.eval_num_timesteps_per_iter = ConstantSchedule(
+                    self.eval_num_timesteps_per_iter
                 )
-        if self.eval_num_episodes_per_iteration is not None:
-            if not isinstance(self.eval_num_episodes_per_iteration, Schedule):
-                self.eval_num_episodes_per_iteration = ConstantSchedule(
-                    self.eval_num_episodes_per_iteration
+        if self.eval_num_episodes_per_iter is not None:
+            if not isinstance(self.eval_num_episodes_per_iter, Schedule):
+                self.eval_num_episodes_per_iter = ConstantSchedule(
+                    self.eval_num_episodes_per_iter
                 )
         return self.eval_sampler_builder(
             self._eval_env,
@@ -954,7 +954,7 @@ class Algorithm(ABC, Trainable):
                 self.buffer_dataset_config = {
                     "batch_size": 1,
                     "max_trajectory_length": 1,
-                    "num_iterations": 1,
+                    "num_iters": 1,
                 }
         if self.buffer_dataset_config is None:
             self.buffer_dataset_config = {}
@@ -1008,21 +1008,21 @@ class Algorithm(ABC, Trainable):
         return profile(**self.enable_profiling)
 
     def _train_step(self) -> "Dict[str, Any]":
-        train_num_timesteps_per_iteration = train_num_episodes_per_iteration = None
-        if self.train_num_timesteps_per_iteration:
-            train_num_timesteps_per_iteration = self.train_num_timesteps_per_iteration()
-            self.train_num_timesteps_per_iteration.step()
-        if self.train_num_episodes_per_iteration:
-            train_num_episodes_per_iteration = self.train_num_episodes_per_iteration()
-            self.train_num_episodes_per_iteration.step()
+        train_num_timesteps_per_iter = train_num_episodes_per_iter = None
+        if self.train_num_timesteps_per_iter:
+            train_num_timesteps_per_iter = self.train_num_timesteps_per_iter()
+            self.train_num_timesteps_per_iter.step()
+        if self.train_num_episodes_per_iter:
+            train_num_episodes_per_iter = self.train_num_episodes_per_iter()
+            self.train_num_episodes_per_iter.step()
         with (
             autocast(**self.enable_amp)
             if self.enable_amp["enabled"]
             else contextlib.suppress()
         ):
             for experience, done in self._train_sampler.sample(
-                train_num_timesteps_per_iteration,
-                train_num_episodes_per_iteration,
+                train_num_timesteps_per_iter,
+                train_num_episodes_per_iter,
             ):
                 self._buffer.add(experience, done)
         result = self._train_sampler.stats
@@ -1081,13 +1081,13 @@ class Algorithm(ABC, Trainable):
         return train_on_batch_result
 
     def _eval_step(self) -> "Dict[str, Any]":
-        eval_num_timesteps_per_iteration = eval_num_episodes_per_iteration = None
-        if self.eval_num_timesteps_per_iteration:
-            eval_num_timesteps_per_iteration = self.eval_num_timesteps_per_iteration()
-            self.eval_num_timesteps_per_iteration.step()
-        if self.eval_num_episodes_per_iteration:
-            eval_num_episodes_per_iteration = self.eval_num_episodes_per_iteration()
-            self.eval_num_episodes_per_iteration.step()
+        eval_num_timesteps_per_iter = eval_num_episodes_per_iter = None
+        if self.eval_num_timesteps_per_iter:
+            eval_num_timesteps_per_iter = self.eval_num_timesteps_per_iter()
+            self.eval_num_timesteps_per_iter.step()
+        if self.eval_num_episodes_per_iter:
+            eval_num_episodes_per_iter = self.eval_num_episodes_per_iter()
+            self.eval_num_episodes_per_iter.step()
         self._eval_sampler.reset()
         with (
             autocast(**self.enable_amp)
@@ -1095,8 +1095,8 @@ class Algorithm(ABC, Trainable):
             else contextlib.suppress()
         ):
             for _ in self._eval_sampler.sample(
-                eval_num_timesteps_per_iteration,
-                eval_num_episodes_per_iteration,
+                eval_num_timesteps_per_iter,
+                eval_num_episodes_per_iter,
             ):
                 pass
         for schedule in self._eval_agent.schedules.values():
@@ -1360,7 +1360,7 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
             Since the configuration is the same for each worker, the effective
             value of a parameter that is cumulative by nature is equal to the
             same parameter value multiplied by the number of workers (e.g.
-            ``train_num_episodes_per_iteration = num_workers * worker_config["train_num_episodes_per_iteration"]``).
+            ``train_num_episodes_per_iter = num_workers * worker_config["train_num_episodes_per_iter"]``).
 
             """
             super().__init__(

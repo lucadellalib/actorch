@@ -5,7 +5,7 @@
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
 Welcome to `actorch`, a deep reinforcement learning framework for fast prototyping based on
-[PyTorch](https://pytorch.org). The following algorithms are included:
+[PyTorch](https://pytorch.org). The following algorithms have been implemented so far:
 
 - [REINFORCE](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
 - [Advantage Actor-Critic (A2C)](https://arxiv.org/abs/1602.01783)
@@ -17,14 +17,14 @@ Welcome to `actorch`, a deep reinforcement learning framework for fast prototypi
 ## 💡 Key features
 
 - Support for custom observation/action spaces
-- Support for custom multimodal input multimodal output (recurrent) models
+- Support for custom multimodal input multimodal output recurrent models
 - Support for custom policy/value distributions
 - Support for custom preprocessing/postprocessing pipelines
 - Support for custom exploration strategies
 - Support for normalizing flows
 - Batched environments (both for training and evaluation)
 - Batched trajectory replay
-- Batched and distributional value estimation (e.g. distributional V-trace)
+- Batched and distributional value estimation (e.g. batched and distributional V-trace)
 - Data parallel and distributed data parallel multi-GPU training and evaluation
 - Automatic mixed precision training
 - Integration with [Ray Tune](https://docs.ray.io/en/latest/tune/index.html) for experiment execution and hyperparameter tuning at any scale
@@ -55,7 +55,7 @@ run:
 pip install actorch
 ```
 
-### Using Conda
+### Using Conda virtual environment
 
 Clone or download and extract the repository, navigate to `<path-to-repository>/bin` and run
 the installation script (`install.sh` for Linux/macOS, `install.bat` for Windows).
@@ -125,8 +125,8 @@ installed. For more details, see `pre-commit`'s [documentation](https://pre-comm
 
 In this example we will solve the [OpenAI Gym](https://www.gymlibrary.ml/) environment
 `CartPole-v1` using REINFORCE.
-Copy the following configuration in a file named `REINFORCE_CartPole-v1.py` (with the
-same indentation):
+Copy the following configuration in a file named `REINFORCE_CartPole-v1.py` (**with the
+same indentation**):
 
 ```
 import gym
@@ -149,10 +149,10 @@ experiment_params = ExperimentParams(
             config,
             num_workers=2,
         ),
-        train_num_episodes_per_iteration=10,
-        eval_interval_iterations=10,
+        train_num_episodes_per_iter=10,
+        eval_freq=10,
         eval_env_config={"render_mode": None},
-        eval_num_episodes_per_iteration=10,
+        eval_num_episodes_per_iter=10,
         policy_network_model_builder=FCNet,
         policy_network_model_config={
             "torso_fc_configs": [
@@ -173,7 +173,9 @@ experiment_params = ExperimentParams(
 )
 ```
 
-Open a terminal in the directory where you saved the configuration file and run:
+Open a terminal in the directory where you saved the configuration file and run
+(if you installed `actorch` in a virtual environment, you first need to activate
+it, e.g. `conda activate actorch-env` if you installed `actorch` using Conda):
 
 ```
 pip install gym[classic_control]        # Install dependencies for CartPole-v1
@@ -193,9 +195,6 @@ actorch visualize plotly tensorboard
 You can find the generated plots in `plots`.
 
 Congratulations, you have run your first experiment!
-
-**NOTE**: if you installed `actorch` in a virtual environment, you first need to activate
-it (`conda activate actorch-env` if you installed `actorch` using Conda).
 
 **HINT**: since a configuration file is a regular Python script, you can use all the
 features of the language (e.g. inheritance).

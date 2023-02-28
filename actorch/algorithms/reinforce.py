@@ -76,16 +76,16 @@ class REINFORCE(Algorithm):
             train_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             train_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             train_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            train_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            eval_interval_iterations: "Tunable[RefOrFutureRef[Optional[int]]]" = 1,
+            train_num_episodes_per_iter: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_freq: "Tunable[RefOrFutureRef[Optional[int]]]" = 1,
             eval_env_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Union[Env, BatchedEnv]]]]]" = None,
             eval_env_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             eval_agent_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Agent]]]]" = None,
             eval_agent_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             eval_sampler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Sampler]]]]" = None,
             eval_sampler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            eval_num_timesteps_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
-            eval_num_episodes_per_iteration: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_timesteps_per_iter: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
+            eval_num_episodes_per_iter: "Tunable[RefOrFutureRef[Optional[Union[int, float, Schedule]]]]" = None,
             policy_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             policy_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -127,16 +127,16 @@ class REINFORCE(Algorithm):
                 train_agent_config=train_agent_config,
                 train_sampler_builder=train_sampler_builder,
                 train_sampler_config=train_sampler_config,
-                train_num_episodes_per_iteration=train_num_episodes_per_iteration,
-                eval_interval_iterations=eval_interval_iterations,
+                train_num_episodes_per_iter=train_num_episodes_per_iter,
+                eval_freq=eval_freq,
                 eval_env_builder=eval_env_builder,
                 eval_env_config=eval_env_config,
                 eval_agent_builder=eval_agent_builder,
                 eval_agent_config=eval_agent_config,
                 eval_sampler_builder=eval_sampler_builder,
                 eval_sampler_config=eval_sampler_config,
-                eval_num_timesteps_per_iteration=eval_num_timesteps_per_iteration,
-                eval_num_episodes_per_iteration=eval_num_episodes_per_iteration,
+                eval_num_timesteps_per_iter=eval_num_timesteps_per_iter,
+                eval_num_episodes_per_iter=eval_num_episodes_per_iter,
                 policy_network_preprocessors=policy_network_preprocessors,
                 policy_network_model_builder=policy_network_model_builder,
                 policy_network_model_config=policy_network_model_config,
@@ -226,7 +226,7 @@ class REINFORCE(Algorithm):
     # override
     def _build_buffer_dataset(self) -> "BufferDataset":
         if self.buffer_dataset_config is None:
-            batch_size = self.train_num_episodes_per_iteration
+            batch_size = self.train_num_episodes_per_iter
             if batch_size is None:
                 batch_size = LambdaSchedule(
                     lambda *args, **kwargs: self._buffer.num_full_trajectories
@@ -234,7 +234,7 @@ class REINFORCE(Algorithm):
             self.buffer_dataset_config = {
                 "batch_size": batch_size,
                 "max_trajectory_length": float("inf"),
-                "num_iterations": 1,
+                "num_iters": 1,
             }
         return super()._build_buffer_dataset()
 

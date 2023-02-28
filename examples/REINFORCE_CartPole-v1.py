@@ -40,10 +40,10 @@ experiment_params = ExperimentParams(
             config,
             num_workers=2,
         ),
-        train_num_episodes_per_iteration=10,
-        eval_interval_iterations=10,
+        train_num_episodes_per_iter=10,
+        eval_freq=10,
         eval_env_config={"render_mode": None},
-        eval_num_episodes_per_iteration=10,
+        eval_num_episodes_per_iter=10,
         policy_network_model_builder=FCNet,
         policy_network_model_config={
             "torso_fc_configs": [{"out_features": 64, "bias": True}],
