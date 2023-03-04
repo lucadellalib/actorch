@@ -17,7 +17,7 @@
 """Conjugate gradient backtracking line search optimizer."""
 
 # Adapted from:
-# https://github.com/rlworkgroup/garage/blob/6585ac7a5f0adda75a8deda7c5fac5b92cfc0385/src/garage/torch/optimizers/conjugate_gradient_optimizer.py#L1
+# https://github.com/rlworkgroup/garage/blob/6585ac7a5f0adda75a8deda7c5fac5b92cfc0385/src/garage/torch/optimizers/conjugate_gradient_optimizer.py
 
 import logging
 from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
@@ -45,7 +45,8 @@ class CGBLS(optim.Optimizer):
     References
     ----------
     .. [1] J. Schulman, S. Levine, P. Moritz, M. Jordan, and P. Abbeel.
-           "Trust Region Policy Optimization". In: ICML. 2015, pp. 1889-1897.
+           "Trust Region Policy Optimization".
+           In: ICML. 2015, pp. 1889-1897.
            URL: https://arxiv.org/abs/1502.05477
 
     """
@@ -220,7 +221,8 @@ class CGBLS(optim.Optimizer):
 
         References
         ----------
-        .. [1] B. A. Pearlmutter. "Fast Exact Multiplication by the Hessian".
+        .. [1] B. A. Pearlmutter.
+               "Fast Exact Multiplication by the Hessian".
                In: Neural Computation. 1994, pp. 147-160.
                URL: https://doi.org/10.1162/neco.1994.6.1.147
 
@@ -298,9 +300,9 @@ class CGBLS(optim.Optimizer):
 
         References
         ----------
-        .. [1] M.R. Hestenes, and E. Stiefel. "Methods of Conjugate Gradients for
-               Solving Linear Systems". In: Journal of Research of the National
-               Bureau of Standards. 1952, pp. 409-435.
+        .. [1] M.R. Hestenes, and E. Stiefel.
+               "Methods of Conjugate Gradients for Solving Linear Systems".
+               In: Journal of Research of the National Bureau of Standards. 1952, pp. 409-435.
                URL: http://dx.doi.org/10.6028/jres.049.044
 
         """
@@ -363,8 +365,9 @@ class CGBLS(optim.Optimizer):
 
         References
         ----------
-        .. [1] L. Armijo. "Minimization of functions having Lipschitz continuous
-               first partial derivatives". In: Pacific J. Math. 1966.
+        .. [1] L. Armijo.
+               "Minimization of functions having Lipschitz continuous first partial derivatives".
+               In: Pacific J. Math. 1966.
                URL: https://msp.org/pjm/1966/16-1/p01.xhtml
 
         """

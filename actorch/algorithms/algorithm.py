@@ -41,7 +41,7 @@ import numpy as np
 import ray
 import torch
 import torch.nn.functional as F
-from gym import Env, spaces
+from gymnasium import Env, spaces
 from numpy import ndarray
 from ray.train import world_rank
 from ray.train.torch import accelerate, prepare_data_loader
@@ -176,7 +176,6 @@ class Algorithm(ABC, Trainable):
                 (possibly batched) training environment.
             train_env_config:
                 The (possibly batched) training environment configuration.
-                Argument `new_step_api` is set internally.
                 Default to ``{}``.
             train_agent_builder:
                 The training agent builder, i.e. a callable that receives
@@ -187,8 +186,11 @@ class Algorithm(ABC, Trainable):
                 The training agent configuration.
                 Arguments `policy_network`, `observation_space`
                 and `action_space` are set internally.
-                Default to ``{"device": "cpu", "num_random_timesteps": 0}`` if
-                `train_agent_builder` is None, ``{}`` otherwise.
+                Default to ``{
+                    "clip_action": True,
+                    "device": "cpu",
+                    "num_random_timesteps": 0,
+                }`` if `train_agent_builder` is None, ``{}`` otherwise.
             train_sampler_builder:
                 The training sampler builder, i.e. a callable that receives
                 keyword arguments from a training sampler configuration and
@@ -221,7 +223,6 @@ class Algorithm(ABC, Trainable):
                 Default to `train_env_builder`.
             eval_env_config:
                 The (possibly batched) evaluation environment configuration.
-                Argument `new_step_api` is set internally.
                 Default to `train_env_config` if `eval_env_builder`
                 is None, ``{}`` otherwise.
             eval_agent_builder:
@@ -233,7 +234,7 @@ class Algorithm(ABC, Trainable):
                 The evaluation agent configuration.
                 Arguments `policy_network`, `observation_space`
                 and `action_space` are set internally.
-                Default to ``{"device": "cpu"}`` if
+                Default to ``{"clip_action": True, "device": "cpu"}`` if
                 `eval_agent_builder` is None, ``{}`` otherwise.
             eval_sampler_builder:
                 The evaluation sampler builder, i.e. a callable that receives
@@ -471,10 +472,7 @@ class Algorithm(ABC, Trainable):
         self._train_env = self._build_train_env()
         self._eval_env = None
         if self.eval_freq is not None:
-            if (
-                self.eval_freq < 1
-                or not float(self.eval_freq).is_integer()
-            ):
+            if self.eval_freq < 1 or not float(self.eval_freq).is_integer():
                 raise ValueError(
                     f"`eval_freq` ({self.eval_freq}) "
                     f"must be in the integer interval [1, inf)"
@@ -557,9 +555,9 @@ class Algorithm(ABC, Trainable):
 
     # override
     def save_checkpoint(self, tmp_checkpoint_dir: "str") -> "str":
-        checkpoint_filepath = os.path.join(tmp_checkpoint_dir, "checkpoint.pt")
-        torch.save(self._checkpoint, checkpoint_filepath)
-        return checkpoint_filepath
+        checkpoint_file = os.path.join(tmp_checkpoint_dir, "checkpoint.pt")
+        torch.save(self._checkpoint, checkpoint_file)
+        return checkpoint_file
 
     # override
     def load_checkpoint(self, checkpoint: "str") -> "None":
@@ -583,20 +581,19 @@ class Algorithm(ABC, Trainable):
             )
         exported = {}
         if ExportFormat.CHECKPOINT in export_formats:
-            checkpoint_filepath = os.path.join(export_dir, "checkpoint.pt")
-            torch.save(self._policy_network.state_dict(), checkpoint_filepath)
-            exported[ExportFormat.CHECKPOINT] = checkpoint_filepath
+            checkpoint_file = os.path.join(export_dir, "checkpoint.pt")
+            torch.save(self._policy_network.state_dict(), checkpoint_file)
+            exported[ExportFormat.CHECKPOINT] = checkpoint_file
         if ExportFormat.MODEL in export_formats:
-            model_filepath = os.path.join(export_dir, "model.pkl")
-            torch.save(
-                self._policy_network, model_filepath, pickle_module=ray.cloudpickle
-            )
-            exported[ExportFormat.MODEL] = model_filepath
+            model_file = os.path.join(export_dir, "model.pkl")
+            torch.save(self._policy_network, model_file, pickle_module=ray.cloudpickle)
+            exported[ExportFormat.MODEL] = model_file
         return exported
 
     @property
     def _checkpoint(self) -> "Dict[str, Any]":
         checkpoint = {
+            "rng_state": torch.random.get_rng_state(),
             "train_agent": self._train_agent.state_dict(
                 exclude_keys=["policy_network"]
             ),
@@ -630,6 +627,7 @@ class Algorithm(ABC, Trainable):
 
     @_checkpoint.setter
     def _checkpoint(self, value: "Dict[str, Any]") -> "None":
+        torch.random.set_rng_state(value["rng_state"])
         self._train_agent.load_state_dict(value["train_agent"], strict=False)
         self._policy_network.load_state_dict(value["policy_network"])
         self._buffer_dataset.load_state_dict(value["buffer_dataset"], strict=False)
@@ -679,7 +677,7 @@ class Algorithm(ABC, Trainable):
 
         try:
             train_env = self.train_env_builder(
-                **self.train_env_config, new_step_api=True
+                **self.train_env_config,
             )
         except TypeError:
             train_env = self.train_env_builder(**self.train_env_config)
@@ -700,7 +698,7 @@ class Algorithm(ABC, Trainable):
             self.eval_env_config = {}
 
         try:
-            eval_env = self.eval_env_builder(**self.eval_env_config, new_step_api=True)
+            eval_env = self.eval_env_builder(**self.eval_env_config)
         except TypeError:
             eval_env = self.eval_env_builder(**self.eval_env_config)
         if not isinstance(eval_env, BatchedEnv):
@@ -857,7 +855,11 @@ class Algorithm(ABC, Trainable):
         if self.train_agent_builder is None:
             self.train_agent_builder = StochasticAgent
             if self.train_agent_config is None:
-                self.train_agent_config = {"device": "cpu", "num_random_timesteps": 0}
+                self.train_agent_config = {
+                    "clip_action": True,
+                    "device": "cpu",
+                    "num_random_timesteps": 0,
+                }
         if self.train_agent_config is None:
             self.train_agent_config = {}
         return self.train_agent_builder(
@@ -871,7 +873,10 @@ class Algorithm(ABC, Trainable):
         if self.eval_agent_builder is None:
             self.eval_agent_builder = Agent
             if self.eval_agent_builder is None:
-                self.eval_agent_builder = {"device": "cpu"}
+                self.eval_agent_builder = {
+                    "clip_action": True,
+                    "device": "cpu",
+                }
         if self.eval_agent_config is None:
             self.eval_agent_config = {}
         return self.eval_agent_builder(
@@ -1048,7 +1053,8 @@ class Algorithm(ABC, Trainable):
             self._policy_network.train()
         self._policy_network.to(self._device, non_blocking=True)
         with (self._profiler if self._profiler else contextlib.suppress()):
-            for experiences, is_weight, mask in self._dataloader:
+            train_on_batch_result = {}
+            for idx, (experiences, is_weight, mask) in enumerate(self._dataloader):
                 observation = experiences.pop("next_observation")
                 observation = F.pad(
                     observation, (0, 0) * (observation.ndim - 2) + (1, 0)
@@ -1070,6 +1076,7 @@ class Algorithm(ABC, Trainable):
                     else contextlib.suppress()
                 ):
                     train_on_batch_result, priority = self._train_on_batch(
+                        idx,
                         experiences,
                         is_weight,
                         mask,
@@ -1241,6 +1248,7 @@ class Algorithm(ABC, Trainable):
     @abstractmethod
     def _train_on_batch(
         self,
+        idx: "int",
         experiences: "Dict[str, Tensor]",
         is_weight: "Tensor",
         mask: "Tensor",
@@ -1252,6 +1260,8 @@ class Algorithm(ABC, Trainable):
 
         Parameters
         ----------
+        idx:
+            The batch index.
         experiences:
             The batched experiences, shape of ``experiences[name]``:
             ``[B, T + 1, *self._buffer.spec[name]["shape"]]``

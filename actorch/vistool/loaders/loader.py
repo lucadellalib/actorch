@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Progress loader."""
+"""Performance metrics loader."""
 
 import os
 import re
@@ -34,74 +34,74 @@ __all__ = [
 
 
 class Loader(ABC):
-    """Load progress data from progress files stored in a directory."""
+    """Load performance metrics from log files stored in a directory."""
 
     @classmethod
     def load(
         cls,
-        input_dirpath: "str",
+        input_dir: "str",
         search_pattern: "str" = ".*",
         exclude_names: "Optional[Sequence[str]]" = None,
         **kwargs: "Any",
     ) -> "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]":
-        """Retrieve progress files from an input directory and load the progress data.
+        """Retrieve log files from an input directory and load the performance metrics.
 
         Parameters
         ----------
-        input_dirpath:
+        input_dir:
             The absolute or relative path to the input directory.
         search_pattern:
-            The regex pattern to search for in the paths to the progress files.
+            The regex pattern to search for in the paths to the log files.
         exclude_names:
-            The names of the data series in the progress files that must not be loaded.
+            The names of the data series in the log files that must not be loaded.
             Default to ``[]``.
 
         Returns
         -------
-            The progress data, i.e. a dict that maps series names to dicts
+            The performance metrics, i.e. a dict that maps series names to dicts
             that map trial names to pairs with the following values:
             - the series mean (over sampled series);
             - the series standard deviation (over sampled series).
 
         """
-        input_dirpath = os.path.realpath(input_dirpath)
+        input_dir = os.path.realpath(input_dir)
         search_regex = re.compile(search_pattern)
         exclude_names = exclude_names or []
-        filepaths = sorted(
+        files = sorted(
             filter(
                 lambda x: search_regex.match(x),
                 [
-                    os.path.join(subdirpath, filename)
-                    for subdirpath, _, filenames in os.walk(input_dirpath)
+                    os.path.join(subdir, filename)
+                    for subdir, _, filenames in os.walk(input_dir)
                     for filename in filenames
                 ],
             )
         )
-        all_data: "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]" = defaultdict(dict)
-        with tqdm(total=len(filepaths)) as progress_bar:
-            for filepath in filepaths:
-                head, tail = os.path.split(filepath)
-                # Assume progress files are stored in a directory named after the trial
+        all_metrics: "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]" = defaultdict(dict)
+        with tqdm(total=len(files)) as progress_bar:
+            for file in files:
+                head, tail = os.path.split(file)
+                # Assume log files are stored in a directory named after the trial
                 trial_name = os.path.basename(head)
                 progress_bar.set_description(
                     f"Loading {os.path.join(trial_name, tail)}"
                 )
-                data = cls._load_data(filepath, **kwargs)
-                for series_name in data:
+                metrics = cls._load_metrics(file, **kwargs)
+                for series_name in metrics:
                     if series_name in exclude_names:
                         continue
                     if series_name.endswith("/stddev"):
                         continue
-                    mean = data[series_name]
+                    mean = metrics[series_name]
                     stddev = np.zeros_like(mean)
                     if series_name.endswith("/mean"):
                         stddev_key = series_name.replace("/mean", "/stddev")
-                        if stddev_key in data:
+                        if stddev_key in metrics:
                             series_name = series_name.replace("/mean", "")
-                            stddev = data[stddev_key]
-                    all_data[series_name][trial_name] = (mean, stddev)
+                            stddev = metrics[stddev_key]
+                    all_metrics[series_name][trial_name] = (mean, stddev)
                 progress_bar.update()
-        return all_data
+        return all_metrics
 
     @classmethod
     def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
@@ -117,43 +117,42 @@ class Loader(ABC):
             The default command line argument parser.
 
         """
-        parser_kwargs.setdefault("description", "Load progress data")
+        parser_kwargs.setdefault("description", "Load performance metrics")
         parser = ArgumentParser(**parser_kwargs)
         parser.add_argument(
-            "--input-dirpath",
+            "--input-dir",
             default=".",
             help="absolute or relative path to the input directory",
-            metavar="input-dir",
         )
         parser.add_argument(
             "-p",
             "--search-pattern",
             default=".*",
-            help="regex pattern to search for in the paths to the progress files",
+            help="regex pattern to search for in the paths to the log files",
         )
         parser.add_argument(
             "-e",
             "--exclude-names",
             nargs="+",
             default=[],
-            help="names of the data series in the progress files that must not be loaded",
+            help="names of the data series in the log files that must not be loaded",
         )
         return parser
 
     @classmethod
     @abstractmethod
-    def _load_data(cls, filepath: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
-        """Load progress data from a progress file.
+    def _load_metrics(cls, file: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
+        """Load performance metrics from a log file.
 
         Parameters
         ----------
-        filepath:
-            The absolute path to the progress file.
+        file:
+            The absolute path to the log file.
 
         Returns
         -------
-            The progress data, i.e. a dict that maps names of the data
-            series in the progress file to the data series themselves.
+            The performance metrics, i.e. a dict that maps names of the
+            data series in the log file to the data series themselves.
 
         """
         raise NotImplementedError

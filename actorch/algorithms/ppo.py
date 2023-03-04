@@ -20,17 +20,16 @@ import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
-from gym import Env
+from gymnasium import Env
 from numpy import ndarray
 from torch import Tensor
 from torch.cuda.amp import autocast
 from torch.distributions import Distribution
-from torch.nn.modules import loss
-from torch.optim import Optimizer, lr_scheduler
+from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
 from actorch.agents import Agent
-from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C
+from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C, Loss, LRScheduler
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
 from actorch.algorithms.value_estimation import lambda_return
 from actorch.envs import BatchedEnv
@@ -52,7 +51,8 @@ class PPO(A2C):
     References
     ----------
     .. [1] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov.
-           "Proximal Policy Optimization Algorithms". In: arXiv. 2017.
+           "Proximal Policy Optimization Algorithms".
+           In: arXiv. 2017.
            URL: https://arxiv.org/abs/1707.06347
 
     """
@@ -92,16 +92,16 @@ class PPO(A2C):
             policy_network_postprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             policy_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             value_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             value_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., loss._Loss]]]]" = None,
+            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Loss]]]]" = None,
             value_network_loss_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             dataloader_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., DataLoader]]]]" = None,
             dataloader_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -230,11 +230,17 @@ class PPO(A2C):
         self.num_epochs.step()
         self.minibatch_size.step()
         self.ratio_clip.step()
+        result["trace_decay"] = self.trace_decay()
+        result["num_epochs"] = self.num_epochs()
+        result["minibatch_size"] = self.minibatch_size()
+        result["ratio_clip"] = self.ratio_clip()
+        result.pop("num_return_steps", None)
         return result
 
     # override
     def _train_on_batch(
         self,
+        idx: "int",
         experiences: "Dict[str, Tensor]",
         is_weight: "Tensor",
         mask: "Tensor",
@@ -275,6 +281,7 @@ class PPO(A2C):
                 self.trace_decay(),
             )
 
+        # Iterate over minibatches
         args = [targets, advantages, mask, *experiences.values()]
         for i, v in enumerate(args):
             args[i] = v.movedim(0, 1)
@@ -287,26 +294,33 @@ class PPO(A2C):
                     batch[i] = v.movedim(0, 1)
                 targets_batch, advantages_batch, mask_batch = batch[:3]
                 experiences_batch = {k: v for k, v in zip(experiences, batch[3:])}
-                if self.normalize_advantage:
-                    length_batch = mask_batch.sum(dim=1, keepdim=True)
-                    advantages_batch_mean = (
-                        advantages_batch.sum(dim=1, keepdim=True) / length_batch
-                    )
-                    advantages_batch -= advantages_batch_mean
-                    advantages_batch *= mask_batch
-                    advantages_batch_stddev = (
-                        (
-                            (advantages_batch**2).sum(dim=1, keepdim=True)
-                            / length_batch
+
+                with (
+                    autocast(**self.enable_amp)
+                    if self.enable_amp["enabled"]
+                    else contextlib.suppress()
+                ):
+                    if self.normalize_advantage:
+                        length_batch = mask_batch.sum(dim=1, keepdim=True)
+                        advantages_batch_mean = (
+                            advantages_batch.sum(dim=1, keepdim=True) / length_batch
                         )
-                        .sqrt()
-                        .clamp(min=1e-6)
+                        advantages_batch -= advantages_batch_mean
+                        advantages_batch *= mask_batch
+                        advantages_batch_stddev = (
+                            (
+                                (advantages_batch**2).sum(dim=1, keepdim=True)
+                                / length_batch
+                            )
+                            .sqrt()
+                            .clamp(min=1e-6)
+                        )
+                        advantages_batch /= advantages_batch_stddev
+                        advantages_batch *= mask_batch
+                    state_values_batch, _ = self._value_network(
+                        experiences_batch["observation"], mask=mask_batch
                     )
-                    advantages_batch /= advantages_batch_stddev
-                    advantages_batch *= mask_batch
-                state_values_batch, _ = self._value_network(
-                    experiences_batch["observation"], mask=mask_batch
-                )
+
                 result["value_network"], priority = self._train_on_batch_value_network(
                     state_values_batch,
                     targets_batch,
@@ -353,7 +367,7 @@ class PPO(A2C):
             clipped_surrogate_loss = advantage * ratio.clamp(
                 1.0 - ratio_clip, 1.0 + ratio_clip
             )
-            loss = -torch.min(surrogate_loss, clipped_surrogate_loss)
+            loss = -surrogate_loss.min(clipped_surrogate_loss)
             entropy_bonus = None
             if entropy_coeff != 0.0:
                 entropy_bonus = -entropy_coeff * policy.entropy()[mask]

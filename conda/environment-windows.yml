@@ -72,8 +72,8 @@ dependencies:
     - gpustat==0.6.0
     - GPUtil==1.4.0
     - grpcio==1.32.0
-    - gym==0.25.0
-    - gym-notices==0.0.7
+    - gymnasium==0.26.1
+    - gymnasium-notices==0.0.1
     - hiredis==1.1.0
     - identify==1.4.28
     - idna==2.10

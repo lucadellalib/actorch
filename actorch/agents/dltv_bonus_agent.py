@@ -21,7 +21,7 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 import torch
-from gym.spaces import Space
+from gymnasium.spaces import Space
 from numpy import ndarray
 from torch import Tensor, device
 from torch.distributions import Distribution
@@ -159,7 +159,7 @@ class DLTVBonusAgent(StochasticAgent):
             device,
             num_random_timesteps,
         )
-        self._schedules = {"suppression_coeff": self.suppression_coeff}
+        self._schedules["suppression_coeff"] = self.suppression_coeff
 
     # override
     def _stochastic_predict(

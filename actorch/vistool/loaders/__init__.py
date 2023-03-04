@@ -14,22 +14,8 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Visualizer."""
+"""Performance metrics loaders."""
 
-try:
-    import matplotlib
-    import numpy
-    import plotly
-    import scipy
-    import tensorboard
-    import tqdm
-    import yaml
-except ImportError:
-    raise ImportError(
-        "Visualizer is not included in the default installation. "
-        "Run `pip install actorch[visualizer]` to install it"
-    )
-
-from actorch.visualizer.loaders import *
-from actorch.visualizer.plotters import *
-from actorch.visualizer.visualize import *
+from actorch.vistool.loaders.csv_loader import *
+from actorch.vistool.loaders.loader import *
+from actorch.vistool.loaders.tensorboard_loader import *

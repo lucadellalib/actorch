@@ -24,16 +24,16 @@ import os
 import shutil
 import signal
 
-import gym
+import gymnasium as gym
 import pytest
 import ray
-from gym import spaces
+from gymnasium import spaces
 from ray import tune
 
 from actorch import ExperimentParams, Flat, algorithms, models
 
 
-_TMP_DIRPATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tmp")
+_TMP_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tmp")
 
 
 class RepeatObservationEnv(gym.Env):
@@ -106,7 +106,7 @@ class RepeatObservationEnv(gym.Env):
 
 
 def _cleanup():
-    shutil.rmtree(_TMP_DIRPATH, ignore_errors=True)
+    shutil.rmtree(_TMP_DIR, ignore_errors=True)
     ray.shutdown()
 
 
@@ -120,12 +120,9 @@ signal.signal(signal.SIGINT, _cleanup)
     [
         algorithms.A2C,
         algorithms.ACKTR,
+        algorithms.AWR,
         algorithms.PPO,
         algorithms.REINFORCE,
-        algorithms.DistributedDataParallelA2C,
-        algorithms.DistributedDataParallelACKTR,
-        algorithms.DistributedDataParallelPPO,
-        algorithms.DistributedDataParallelREINFORCE,
     ],
 )
 @pytest.mark.parametrize(
@@ -172,7 +169,7 @@ def test_algorithm_mixed(algorithm_cls, model_cls, space):
         experiments_params = ExperimentParams(
             run_or_experiment=algorithm_cls,
             stop={"training_iteration": 1},
-            local_dir=_TMP_DIRPATH,
+            local_dir=_TMP_DIR,
             config=algorithm_cls.Config(
                 train_env_builder=lambda **config: RepeatObservationEnv(
                     space,
@@ -193,6 +190,60 @@ def test_algorithm_mixed(algorithm_cls, model_cls, space):
             algorithms.DistributedDataParallelREINFORCE,
         ]:
             experiments_params["config"]["value_network_model_builder"] = model_cls
+        tune.run(**experiments_params)
+    finally:
+        _cleanup()
+
+
+@pytest.mark.parametrize(
+    "algorithm_cls",
+    [
+        algorithms.DDPG,
+        algorithms.TD3,
+    ],
+)
+@pytest.mark.parametrize(
+    "space",
+    [
+        spaces.Box(low=0.0, high=5.0, shape=()),
+        spaces.Box(low=0.0, high=5.0, shape=(3,)),
+        spaces.Box(low=0.0, high=5.0, shape=(3, 4)),
+        spaces.Box(low=0.0, high=5.0, shape=(3, 4, 5)),
+        spaces.Tuple(
+            [
+                spaces.Box(low=0.0, high=5.0, shape=(3, 4)),
+                spaces.Box(low=1.0, high=2.0, shape=(2,)),
+                spaces.Dict(
+                    {
+                        "a": spaces.Box(low=0.0, high=5.0, shape=(5, 6)),
+                        "b": spaces.Box(low=0.0, high=5.0, shape=(3,)),
+                    }
+                ),
+            ]
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "model_cls",
+    [models.FCNet, models.ConvNet, models.LSTMNet],
+)
+def test_algorithm_continuous(algorithm_cls, model_cls, space):
+    ray.init(local_mode=True, ignore_reinit_error=True)
+    try:
+        experiments_params = ExperimentParams(
+            run_or_experiment=algorithm_cls,
+            stop={"training_iteration": 1},
+            local_dir=_TMP_DIR,
+            config=algorithm_cls.Config(
+                train_env_builder=lambda **config: RepeatObservationEnv(
+                    space,
+                    **config,
+                ),
+                policy_network_model_builder=model_cls,
+            ),
+        )
+        if model_cls == models.ConvNet and Flat(space).sample().ndim < 2:
+            return
         tune.run(**experiments_params)
     finally:
         _cleanup()

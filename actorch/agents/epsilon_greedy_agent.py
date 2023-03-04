@@ -19,7 +19,7 @@
 from typing import Optional, Tuple, Union
 
 import numpy as np
-from gym.spaces import Space
+from gymnasium.spaces import Space
 from numpy import ndarray
 from torch import device
 

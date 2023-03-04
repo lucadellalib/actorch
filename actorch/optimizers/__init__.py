@@ -17,4 +17,3 @@
 """Optimizers."""
 
 from actorch.optimizers.cgbls import *
-from actorch.optimizers.kfac import *

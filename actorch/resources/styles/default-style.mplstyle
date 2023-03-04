@@ -15,7 +15,7 @@
 # ==============================================================================
 
 # Adapted from:
-# https://github.com/matplotlib/matplotlib/blob/ec0132f66170dabc6352ba79d839b1dd9eb02157/lib/matplotlib/mpl-data/stylelib/seaborn-ticks.mplstyle#L1
+# https://github.com/matplotlib/matplotlib/blob/ec0132f66170dabc6352ba79d839b1dd9eb02157/lib/matplotlib/mpl-data/stylelib/seaborn-ticks.mplstyle
 
 
 # 0.15 = dark_gray
@@ -28,8 +28,8 @@ axes.grid: True
 axes.labelcolor: 0.15
 axes.labelsize: 12.5
 axes.linewidth: 1.0
-axes.spines.right: False
-axes.spines.top: False
+axes.spines.right: True
+axes.spines.top: True
 axes.titlesize: 15
 axes.unicode_minus: False
 
@@ -64,9 +64,11 @@ xtick.direction: out
 xtick.labelsize: 10
 xtick.major.size: 6
 xtick.minor.size: 3
+xtick.top: true
 
 ytick.color: 0.15
 ytick.direction: out
 ytick.labelsize: 10
 ytick.major.size: 6
 ytick.minor.size: 3
+ytick.right: true

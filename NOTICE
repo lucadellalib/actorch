@@ -21,9 +21,9 @@ limitations under the License.
 
 #############################################################################################################################################################
 
-2. Code in actorch/optimizers/kfac.py adapted from:
-   https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/utils.py#L1
-   https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/kfac_preconditioner.py#L1
+2. Code in actorch/preconditioners/kfac.py adapted from:
+   https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/utils.py
+   https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/kfac_preconditioner.py
 
 MIT License
 
@@ -50,7 +50,7 @@ SOFTWARE.
 #############################################################################################################################################################
 
 3. Code in actorch/resources/styles/default-style.mplstyle adapted from:
-   https://github.com/matplotlib/matplotlib/blob/ec0132f66170dabc6352ba79d839b1dd9eb02157/lib/matplotlib/mpl-data/stylelib/seaborn-ticks.mplstyle#L1
+   https://github.com/matplotlib/matplotlib/blob/ec0132f66170dabc6352ba79d839b1dd9eb02157/lib/matplotlib/mpl-data/stylelib/seaborn-ticks.mplstyle
 
 License agreement for matplotlib versions 1.3.0 and later
 =========================================================
@@ -105,7 +105,7 @@ Agreement.
 #############################################################################################################################################################
 
 4. Code in actorch/resources/templates/default-template.yml adapted from:
-   https://github.com/plotly/plotly.py/blob/8289eb1c85125e147c4ce14b56272ed50b99ef20/packages/python/plotly/plotly/package_data/templates/simple_white.json#1
+   https://github.com/plotly/plotly.py/blob/8289eb1c85125e147c4ce14b56272ed50b99ef20/packages/python/plotly/plotly/package_data/templates/simple_white.json
 
 The MIT License (MIT)
 
@@ -180,7 +180,7 @@ limitations under the License.
 #############################################################################################################################################################
 
 7. Code in actorch/optimizers/cgbls.py adapted from:
-   https://github.com/rlworkgroup/garage/blob/6585ac7a5f0adda75a8deda7c5fac5b92cfc0385/src/garage/torch/optimizers/conjugate_gradient_optimizer.py#L1
+   https://github.com/rlworkgroup/garage/blob/6585ac7a5f0adda75a8deda7c5fac5b92cfc0385/src/garage/torch/optimizers/conjugate_gradient_optimizer.py
 
 MIT License
 
@@ -206,7 +206,7 @@ SOFTWARE.
 
 #############################################################################################################################################################
 
-8. Code in actorch/utils.py adapted from:
+8. Code in actorch/utils/common.py adapted from:
    https://github.com/tqdm/tqdm/blob/f3fb54eb161a9f5de13352e16a70a9960946605b/tqdm/std.py#L259
 
 `tqdm` is a product of collaborative work.

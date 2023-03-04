@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Plotly progress plotter."""
+"""Plotly performance metrics plotter."""
 
 import os
 from argparse import ArgumentParser
@@ -27,7 +27,7 @@ from numpy import ndarray
 from plotly import graph_objects as go
 
 from actorch import resources
-from actorch.visualizer.plotters.plotter import Plotter
+from actorch.vistool.plotters.plotter import Plotter
 
 
 __all__ = [
@@ -36,7 +36,7 @@ __all__ = [
 
 
 class PlotlyPlotter(Plotter):
-    """Plotter based on Plotly backend."""
+    """Plot performance metrics using Plotly backend."""
 
     # override
     @classmethod
@@ -45,10 +45,10 @@ class PlotlyPlotter(Plotter):
         traces: "Dict[str, Tuple[ndarray, ndarray, ndarray]]",
         x_name: "str",
         y_name: "str",
-        output_filepath: "str",
+        output_file: "str",
         opacity: "float",
         offline: "bool" = False,
-        template_filepath_or_name: "str" = "plotly",
+        template_file_or_name: "str" = "plotly",
         **kwargs: "Any",
     ) -> "None":
         """Plot traces.
@@ -61,7 +61,7 @@ class PlotlyPlotter(Plotter):
             - the series to plot along the x-axis;
             - the mean (over sampled series) of the series to plot along the y-axis;
             - the shift (over sampled series) from the mean of the series to plot along the y-axis.
-        output_filepath:
+        output_file:
             The absolute path to the output file.
         x_name:
             The name of the series to plot along the x-axis.
@@ -71,15 +71,15 @@ class PlotlyPlotter(Plotter):
             The confidence interval opacity.
         offline:
             True to generate self-contained plots that can be displayed offline, False otherwise.
-        template_filepath_or_name:
+        template_file_or_name:
             The absolute or relative path to a Plotly template file or the name of one
             of Plotly built-in templates (see https://plotly.com/python/templates/).
 
         """
-        output_filepath = f"{output_filepath}.html"
-        template = template_filepath_or_name
-        if os.path.isfile(template_filepath_or_name):
-            with open(os.path.realpath(template_filepath_or_name)) as f:
+        output_file = f"{output_file}.html"
+        template = template_file_or_name
+        if os.path.isfile(template_file_or_name):
+            with open(os.path.realpath(template_file_or_name)) as f:
                 template = go.layout.Template(yaml.safe_load(f))
         fig = go.Figure()
         for i, (trial_name, (x, mean, shift)) in enumerate(traces.items()):
@@ -131,7 +131,7 @@ class PlotlyPlotter(Plotter):
             legend={"traceorder": "normal"},
             template=template,
         )
-        fig.write_html(output_filepath, include_plotlyjs=True if offline else "cdn")
+        fig.write_html(output_file, include_plotlyjs=True if offline else "cdn")
 
     # override
     @classmethod
@@ -147,6 +147,6 @@ class PlotlyPlotter(Plotter):
             "--template",
             default=resources.get("templates/default-template.yml"),
             help="absolute or relative path to a Plotly template file or name of one of Plotly built-in templates",
-            dest="template_filepath_or_name",
+            dest="template_file_or_name",
         )
         return parser

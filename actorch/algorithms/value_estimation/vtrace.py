@@ -100,12 +100,14 @@ def vtrace(
 
     References
     ----------
-    .. [1] L. Espeholt, H. Soyer, R. Munos, K. Simonyan, V. Mnih, T. Ward, Y. Doron, V. Firoiu,
-           T. Harley, I. Dunning, S. Legg, and K. Kavukcuoglu. "IMPALA: Scalable Distributed
-           Deep-RL with Importance Weighted Actor-Learner Architectures". In: ICML. 2018.
+    .. [1] L. Espeholt, H. Soyer, R. Munos, K. Simonyan, V. Mnih, T. Ward, Y. Doron,
+           V. Firoiu, T. Harley, I. Dunning, S. Legg, and K. Kavukcuoglu.
+           "IMPALA: Scalable Distributed Deep-RL with Importance Weighted Actor-Learner Architectures".
+           In: ICML. 2018.
            URL: https://arxiv.org/abs/1802.01561
     .. [2] T. Zahavy, Z. Xu, V. Veeriah, M. Hessel, J. Oh, H. Van Hasselt, D. Silver, and S. Singh.
-           "A Self-Tuning Actor-Critic Algorithm". In: NeurIPS. 2020, pp. 20913-20924.
+           "A Self-Tuning Actor-Critic Algorithm".
+           In: NeurIPS. 2020, pp. 20913-20924.
            URL: https://arxiv.org/abs/2002.12928
 
     """

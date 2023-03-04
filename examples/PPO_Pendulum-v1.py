@@ -16,21 +16,18 @@
 
 """Train Proximal Policy Optimization on Pendulum-v1."""
 
-# Navigate to `<path-to-repository>`, open a terminal and run:
-# cd examples
+# Navigate to `<path-to-repository>/examples`, open a terminal and run:
 # actorch run PPO_Pendulum-v1.py
 
-import gym
-from torch import nn
+import gymnasium as gym
 from torch.optim import Adam
-from torch.optim.lr_scheduler import StepLR
 
 from actorch import *
 
 
 experiment_params = ExperimentParams(
     run_or_experiment=PPO,
-    stop={"timesteps_total": int(3e5)},
+    stop={"timesteps_total": int(1e5)},
     resources_per_trial={"cpu": 1, "gpu": 0},
     checkpoint_freq=10,
     checkpoint_at_end=True,
@@ -38,42 +35,45 @@ experiment_params = ExperimentParams(
     export_formats=["checkpoint", "model"],
     config=PPO.Config(
         train_env_builder=lambda **config: ParallelBatchedEnv(
-            lambda **config: gym.make("Pendulum-v1", **config),
+            lambda **kwargs: gym.make("Pendulum-v1", **kwargs),
             config,
-            num_workers=1,
+            num_workers=2,
         ),
-        train_num_episodes_per_iter=1,
+        train_num_timesteps_per_iter=2048,
         eval_freq=10,
         eval_env_config={"render_mode": None},
         eval_num_episodes_per_iter=10,
         policy_network_model_builder=FCNet,
         policy_network_model_config={
-            "torso_fc_configs": [{"out_features": 256, "bias": True}],
-            "head_activation_builder": nn.Tanh,
+            "torso_fc_configs": [
+                {"out_features": 256, "bias": True},
+                {"out_features": 256, "bias": True},
+            ],
             "independent_heads": ["action/log_scale"],
         },
         policy_network_optimizer_builder=Adam,
-        policy_network_optimizer_config={"lr": 5e-4},
-        policy_network_optimizer_lr_scheduler_builder=StepLR,
-        policy_network_optimizer_lr_scheduler_config={"step_size": 13000, "gamma": 0.7},
+        policy_network_optimizer_config={"lr": 5e-5},
         value_network_model_builder=FCNet,
         value_network_model_config={
-            "torso_fc_configs": [{"out_features": 256, "bias": True}],
+            "torso_fc_configs": [
+                {"out_features": 256, "bias": True},
+                {"out_features": 256, "bias": True},
+            ],
         },
         value_network_optimizer_builder=Adam,
-        value_network_optimizer_config={"lr": 3e-3, "weight_decay": 0.001},
+        value_network_optimizer_config={"lr": 3e-3},
         discount=0.99,
         trace_decay=0.95,
-        num_epochs=10,
-        minibatch_size=128,
+        num_epochs=20,
+        minibatch_size=16,
         ratio_clip=0.2,
         normalize_advantage=True,
-        entropy_coeff=0.001,
+        entropy_coeff=0.01,
         max_grad_l2_norm=0.5,
         seed=0,
         enable_amp=False,
         enable_reproducibility=True,
         log_sys_usage=True,
-        suppress_warnings=False,
+        suppress_warnings=True,
     ),
 )

@@ -26,6 +26,7 @@ from actorch.envs import *
 from actorch.models import *
 from actorch.networks import *
 from actorch.optimizers import *
+from actorch.preconditioners import *
 from actorch.runner import *
 from actorch.samplers import *
 from actorch.schedules import *
@@ -34,6 +35,6 @@ from actorch.version import VERSION as __version__
 
 
 try:
-    from actorch.visualizer import *
+    from actorch.vistool import *
 except ImportError:
     pass

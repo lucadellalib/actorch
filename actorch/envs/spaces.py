@@ -19,8 +19,8 @@
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
-from gym import spaces
-from gym.utils.seeding import RandomNumberGenerator
+from gymnasium import spaces
+from gymnasium.utils.seeding import RandomNumberGenerator
 from numpy import ndarray
 
 from actorch.envs.utils import (

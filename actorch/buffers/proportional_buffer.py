@@ -38,7 +38,8 @@ class ProportionalBuffer(UniformBuffer):
     References
     ----------
     .. [1] T. Schaul, J. Quan, I. Antonoglou, and D. Silver.
-           "Prioritized Experience Replay". In: ICLR. 2016.
+           "Prioritized Experience Replay".
+           In: ICLR. 2016.
            URL: https://arxiv.org/abs/1511.05952
 
     """

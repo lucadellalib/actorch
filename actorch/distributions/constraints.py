@@ -29,8 +29,19 @@ __all__ = [
 
 
 class _Cat(constraints.cat):
-    """Extended version of `torch.distributions.constraints.cat` that
-    implements `is_discrete` and `check` correctly.
+    """Extended version of `torch.distributions.constraints.cat`
+    that implements `is_discrete` and `check` correctly.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from torch.distributions.constraints import independent, positive, real
+    >>>
+    >>> from actorch.distributions.constraints import cat
+    >>>
+    >>>
+    >>> constraint = cat([independent(real, 1), independent(positive, 1)], lengths=(2, 1))
+    >>> check = constraint.check(torch.as_tensor([-0.2, -0.5, 2.3]))
 
     """
 
@@ -60,7 +71,20 @@ class _Cat(constraints.cat):
 
 
 class _OrderedRealVector(constraints.Constraint):
-    """Constrain to a real-valued vector whose elements are sorted in (strict) ascending order."""
+    """Constrain to a real-valued vector whose elements
+    are sorted in (strict) ascending order.
+
+    Examples
+    --------
+    >>> import torch
+    >>>
+    >>> from actorch.distributions.constraints import ordered_real_vector
+    >>>
+    >>>
+    >>> constraint = ordered_real_vector
+    >>> check = constraint.check(torch.as_tensor([0.2, 0.4, 0.8]))
+
+    """
 
     event_dim = 1
 
@@ -70,7 +94,20 @@ class _OrderedRealVector(constraints.Constraint):
 
 
 class _RealSet(constraints.Constraint):
-    """Constrain to a set (i.e. no duplicates allowed) of real values."""
+    """Constrain to a set (i.e. no duplicates allowed)
+    of real values.
+
+    Examples
+    --------
+    >>> import torch
+    >>>
+    >>> from actorch.distributions.constraints import real_set
+    >>>
+    >>>
+    >>> constraint = real_set(torch.as_tensor([0.2, 0.4, 0.8]))
+    >>> check = constraint.check(torch.as_tensor(0.2))
+
+    """
 
     is_discrete = True
 
@@ -81,8 +118,8 @@ class _RealSet(constraints.Constraint):
         Parameters
         ----------
         values:
-            The set of real values. All dimensions except for the
-            last one are interpreted as batch dimensions.
+            The set of real values. All dimensions except for
+            the last one are interpreted as batch dimensions.
 
         Raises
         ------

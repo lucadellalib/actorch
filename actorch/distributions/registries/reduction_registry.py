@@ -161,8 +161,13 @@ def _is_degenerate_affine(
 ) -> "bool":
     if not is_affine(transform):
         return False
-    shift = transform(torch.zeros(shape))
-    scale = transform(torch.ones(shape)) - shift
+    # TODO: find a more robust solution
+    try:
+        shift = transform(torch.zeros(shape))
+        scale = transform(torch.ones(shape)) - shift
+    except RuntimeError:
+        shift = transform(torch.zeros(shape, device="cuda:0"))
+        scale = transform(torch.ones(shape, device="cuda:0")) - shift
     return (scale == 0.0).all()
 
 

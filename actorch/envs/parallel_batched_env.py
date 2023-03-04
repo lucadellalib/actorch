@@ -25,8 +25,8 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import cloudpickle
 import numpy as np
-from gym import Env
-from gym.utils import seeding
+from gymnasium import Env
+from gymnasium.utils import seeding
 from numpy import ndarray
 
 from actorch.envs.batched_env import BatchedEnv
@@ -73,7 +73,6 @@ class EnvWorkerSharedMemory(mp.Process):
             configuration and returns an environment.
         env_config:
             The environment configuration.
-            Argument `new_step_api` is set internally.
         daemon:
             True to run as a daemonic process, False otherwise.
             If None, its value is inherited from the creating process.
@@ -90,9 +89,7 @@ class EnvWorkerSharedMemory(mp.Process):
     def run(self) -> "None":
         env = cloudpickle.loads(self._pickled_env_builder)(
             **cloudpickle.loads(self._pickled_env_config),
-            new_step_api=True,
         )
-        env.new_step_api = True
         del self._pickled_env_builder
         del self._pickled_env_config
 
@@ -116,7 +113,7 @@ class EnvWorkerSharedMemory(mp.Process):
             while True:
                 command, data = self._connection.recv()
                 if command == "reset":
-                    observation, info = env.reset(return_info=True)
+                    observation, info = env.reset()
                     flat_observation = flatten(
                         env.observation_space, observation, copy=False
                     )
@@ -171,7 +168,6 @@ class ParallelBatchedEnv(BatchedEnv):
             configuration and returns a base environment.
         base_env_config:
             The base environment configuration.
-            Argument `new_step_api` is set internally.
             Default to ``{}``.
         num_workers:
             The number of copies of the base environment.

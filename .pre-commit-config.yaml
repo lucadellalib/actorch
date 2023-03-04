@@ -51,7 +51,7 @@ repos:
         language: system
         entry: check-docstring-first
         types: [python]
-        exclude: (actorch/envs/utils|algorithm|distributed_trainable|network|version)\.py
+        exclude: (a2c|actorch/envs/utils|algorithm|distributed_trainable|network|reinforce|version)\.py
 
       - id: check-merge-conflict
         name: check-merge-conflict
@@ -64,7 +64,7 @@ repos:
         language: system
         entry: flake8
         types: [python]
-        exclude: (/__init__|__main__)\.py$
+        exclude: examples|(/__init__|__main__)\.py$
 
       - id: flake8
         name: flake8 only __init__.py

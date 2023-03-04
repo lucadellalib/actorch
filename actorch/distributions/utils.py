@@ -69,12 +69,14 @@ def l2_project(z_p: "Tensor", p: "Tensor", z_q: "Tensor") -> "Tensor":
 
     References
     ----------
-    .. [1] M. G. Bellemare, W. Dabney, and R. Munos. "A Distributional Perspective on
-           Reinforcement Learning". In: ICML. 2017, pp. 449-458.
+    .. [1] M. G. Bellemare, W. Dabney, and R. Munos.
+           "A Distributional Perspective on Reinforcement Learning".
+           In: ICML. 2017, pp. 449-458.
            URL: https://arxiv.org/abs/1707.06887
-    .. [2] G. Barth-Maron, M. W. Hoffman, D. Budden, W. Dabney, D. Horgan, D. TB,
-           A. Muldal, N. Heess, and T. Lillicrap. "Distributed Distributional
-           Deterministic Policy Gradients". In: ICLR. 2018.
+    .. [2] G. Barth-Maron, M. W. Hoffman, D. Budden, W. Dabney,
+           D. Horgan, D. TB, A. Muldal, N. Heess, and T. Lillicrap.
+           "Distributed Distributional Deterministic Policy Gradients".
+           In: ICLR. 2018.
            URL: https://arxiv.org/abs/1804.08617
 
     """

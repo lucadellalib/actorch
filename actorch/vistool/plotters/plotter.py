@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Progress plotter."""
+"""Performance metrics plotter."""
 
 import os
 from abc import ABC, abstractmethod
@@ -33,29 +33,29 @@ __all__ = [
 
 
 class Plotter(ABC):
-    """Plot progress data."""
+    """Plot performance metrics."""
 
     @classmethod
     def plot(
         cls,
-        data: "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]",
-        output_dirpath: "str" = "plots",
+        metrics: "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]",
+        output_dir: "str" = "plots",
         x_name: "str" = "training_iteration",
         smoothing: "float" = 0.0,
         confidence_level: "float" = 0.9545,
         opacity: "float" = 0.15,
         **kwargs: "Any",
     ) -> "None":
-        """Plot progress data.
+        """Plot performance metrics.
 
         Parameters
         ----------
-        data:
-            The progress data, i.e. a dict that maps series names to dicts
+        metrics:
+            The performance metrics, i.e. a dict that maps series names to dicts
             that map trial names to pairs with the following values:
             - the series mean (over sampled series);
             - the series standard deviation (over sampled series).
-        output_dirpath:
+        output_dir:
             The absolute or relative path to the output directory.
         x_name:
             The name of the series to plot along the x-axis.
@@ -71,7 +71,7 @@ class Plotter(ABC):
         ValueError
             If an invalid argument value is given.
         RuntimeError
-            If `x_name` is not in the progress data to plot.
+            If `x_name` is not in the performance metrics to plot.
 
         """
         for key, value in {
@@ -81,24 +81,24 @@ class Plotter(ABC):
         }.items():
             if value < 0.0 or value > 1.0:
                 raise ValueError(f"`{key}` ({value}) must be in the interval [0, 1]")
-        output_dirpath = os.path.realpath(output_dirpath)
-        if x_name not in data:
+        output_dir = os.path.realpath(output_dir)
+        if x_name not in metrics:
             raise RuntimeError(
-                f"`x_name` ({x_name}) must be in the progress data to plot"
+                f"`x_name` ({x_name}) must be in the performance metrics to plot"
             )
-        x_trials = data.pop(x_name)
+        x_trials = metrics.pop(x_name)
         x_name = x_name.replace("/", "_").replace("_", " ").capitalize()
         num_stddevs = float(stats.norm.ppf((confidence_level + 1) / 2))
-        with tqdm(total=len(data)) as progress_bar:
-            for y_name, y_trials in data.items():
+        with tqdm(total=len(metrics)) as progress_bar:
+            for y_name, y_trials in metrics.items():
                 progress_bar.set_description(f"Plotting {y_name}")
-                output_subdirpath = os.path.join(
-                    output_dirpath,
+                output_subdir = os.path.join(
+                    output_dir,
                     os.path.dirname(y_name),
                 )
-                os.makedirs(output_subdirpath, exist_ok=True)
+                os.makedirs(output_subdir, exist_ok=True)
                 y_name = y_name.replace("/", "_")
-                output_filepath = os.path.join(output_subdirpath, y_name)
+                output_file = os.path.join(output_subdir, y_name)
                 traces = {}
                 for trial_name, (mean, stddev) in y_trials.items():
                     x = x_trials[trial_name][0]
@@ -109,12 +109,12 @@ class Plotter(ABC):
                     shift[mask] = num_stddevs * np.sqrt(
                         cls._exponential_moving_average(stddev[mask] ** 2, smoothing)
                     )
-                    traces[trial_name] = (x, mean, shift)
+                    traces[trial_name] = (x[mask], mean[mask], shift[mask])
                 cls._plot_traces(
                     traces,
                     x_name,
                     y_name.replace("_", " ").capitalize(),
-                    output_filepath,
+                    output_file,
                     opacity,
                     **kwargs,
                 )
@@ -134,13 +134,12 @@ class Plotter(ABC):
             The default command line argument parser.
 
         """
-        parser_kwargs.setdefault("description", "Plot progress data")
+        parser_kwargs.setdefault("description", "Plot performance metrics")
         parser = ArgumentParser(**parser_kwargs)
         parser.add_argument(
-            "--output-dirpath",
+            "--output-dir",
             default="plots",
             help="absolute or relative path to the output directory",
-            metavar="output-dir",
         )
         parser.add_argument(
             "-x",
@@ -192,7 +191,7 @@ class Plotter(ABC):
         traces: "Dict[str, Tuple[ndarray, ndarray, ndarray]]",
         x_name: "str",
         y_name: "str",
-        output_filepath: "str",
+        output_file: "str",
         opacity: "float",
         **kwargs: "Any",
     ) -> "None":
@@ -206,7 +205,7 @@ class Plotter(ABC):
             - the series to plot along the x-axis;
             - the mean (over sampled series) of the series to plot along the y-axis;
             - the shift (over sampled series) from the mean of the series to plot along the y-axis.
-        output_filepath:
+        output_file:
             The absolute path to the output file.
         x_name:
             The name of the series to plot along the x-axis.

@@ -27,9 +27,9 @@ trap "exit" INT
 
 export PATH=~/miniconda3/condabin:$PATH
 
-root_dirpath=$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd -P)")
-curr_dirpath=$PWD
-env_name=$(sed "s/env_name: //" $root_dirpath/bin/config.yml)
+root_dir=$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd -P)")
+curr_dir=$PWD
+env_name=$(sed "s/env_name: //" $root_dir/bin/config.yml)
 platform=$([ $(uname) == "Linux" ] && echo "linux" || echo "macos")
 
 if ! which conda >/dev/null; then
@@ -57,17 +57,17 @@ fi
 
 eval "$(command conda 'shell.bash' 'hook' 2> /dev/null)"
 
-export PIP_SRC=$root_dirpath
+export PIP_SRC=$root_dir
 if conda env list | grep $env_name >/dev/null; then
   echo "Updating virtual environment..."
-  conda env update -n $env_name -f $root_dirpath/conda/environment-$platform.yml
+  conda env update -n $env_name -f $root_dir/conda/environment-$platform.yml
 else
   echo "Installing virtual environment..."
-  conda env create -n $env_name -f $root_dirpath/conda/environment-$platform.yml --force
+  conda env create -n $env_name -f $root_dir/conda/environment-$platform.yml --force
 fi
 
 echo "Installing actorch..."
-cd $root_dirpath
+cd $root_dir
 conda activate $env_name
 pip install -e .[all]
 if [ -d ".git" ]; then
@@ -75,6 +75,6 @@ if [ -d ".git" ]; then
   pre-commit install -f
 fi
 conda deactivate
-cd $curr_dirpath
+cd $curr_dir
 
 echo "Done!"

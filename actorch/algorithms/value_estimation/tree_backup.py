@@ -64,7 +64,7 @@ def tree_backup(
     target_log_probs:
         The log probabilities of the actions performed by `target_policy`, where
         `target_policy` (`pi` in the literature) is the policy being learned about,
-        shape ``[B, T]``.
+        shape: ``[B, T]``.
     mask:
         The boolean tensor indicating which elements (or batch elements
         if distributional) are valid (True) and which are not (False),
@@ -83,8 +83,9 @@ def tree_backup(
 
     References
     ----------
-    .. [1] D. Precup, R. S. Sutton, and S. Singh. "Eligibility traces for off-policy
-           policy evaluation". In: ICML. 2000.
+    .. [1] D. Precup, R. S. Sutton, and S. Singh.
+           "Eligibility traces for off-policy policy evaluation".
+           In: ICML. 2000.
            URL: https://scholarworks.umass.edu/cs_faculty_pubs/80/
 
     """

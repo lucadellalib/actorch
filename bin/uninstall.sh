@@ -27,8 +27,8 @@ trap "exit" INT
 
 export PATH=~$HOME/miniconda3/condabin:$PATH
 
-root_dirpath=$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd -P)")
-env_name=$(sed "s/env_name: //" $root_dirpath/bin/config.yml)
+root_dir=$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd -P)")
+env_name=$(sed "s/env_name: //" $root_dir/bin/config.yml)
 
 eval "$(command conda 'shell.bash' 'hook' 2> /dev/null)"
 

@@ -19,12 +19,13 @@
 from typing import Tuple, Union
 
 import numpy as np
-from gym.spaces import Space
+from gymnasium.spaces import Space
 from numpy import ndarray
 from torch import device
 
 from actorch.agents.stochastic_agent import StochasticAgent
 from actorch.networks import PolicyNetwork
+from actorch.schedules import ConstantSchedule, Schedule
 
 
 __all__ = [
@@ -46,8 +47,8 @@ class GaussianNoiseAgent(StochasticAgent):
         clip_action: "bool" = True,
         device: "Union[device, str]" = "cpu",
         num_random_timesteps: "int" = 0,
-        mean: "float" = 0.0,
-        stddev: "float" = 0.1,
+        mean: "Union[float, Schedule]" = 0.0,
+        stddev: "Union[float, Schedule]" = 0.1,
     ) -> "None":
         """Initialize the object.
 
@@ -69,22 +70,19 @@ class GaussianNoiseAgent(StochasticAgent):
             The number of initial timesteps for which
             a random prediction is returned.
         mean:
-            The noise Gaussian distribution mean
-            (`mu` in the literature).
+            The schedule for the noise Gaussian distribution mean
+            (`mu` in the literature). If a number, it is wrapped
+            in an `actorch.schedules.ConstantSchedule`.
         stddev:
-            The noise Gaussian distribution standard
-            deviation (`sigma` in the literature).
-
-        Raises
-        ------
-        ValueError
-            If `stddev` is not in the interval (0, inf).
+            The schedule for the noise Gaussian distribution standard
+            deviation (`sigma` in the literature). If a number, it is
+            wrapped in an `actorch.schedules.ConstantSchedule`.
 
         """
-        if stddev <= 0.0:
-            raise ValueError(f"`stddev` ({stddev}) must be in the interval (0, inf)")
-        self.mean = mean
-        self.stddev = stddev
+        self.mean = mean if isinstance(mean, Schedule) else ConstantSchedule(mean)
+        self.stddev = (
+            stddev if isinstance(stddev, Schedule) else ConstantSchedule(stddev)
+        )
         super().__init__(
             policy_network,
             observation_space,
@@ -93,16 +91,21 @@ class GaussianNoiseAgent(StochasticAgent):
             device,
             num_random_timesteps,
         )
+        self._schedules["mean"] = self.mean
+        self._schedules["stddev"] = self.stddev
 
     # override
     def _stochastic_predict(
         self, flat_observation: "ndarray"
     ) -> "Tuple[ndarray, ndarray]":
+        stddev = self.stddev()
+        if stddev <= 0.0:
+            raise ValueError(f"`stddev` ({stddev}) must be in the interval (0, inf)")
         flat_action, log_prob = super(StochasticAgent, self)._predict(flat_observation)
         flat_action = flat_action.astype(np.float32)
         flat_action += np.random.normal(
-            self.mean,
-            self.stddev,
+            self.mean(),
+            stddev,
             flat_action.shape,
         )
         return flat_action, log_prob

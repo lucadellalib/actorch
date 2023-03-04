@@ -75,12 +75,13 @@ def off_policy_lambda_return(
     -------
         - The (possibly distributional) off-policy lambda returns,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape ``[B, T]``.
+        - the corresponding advantages, shape: ``[B, T]``.
 
     References
     ----------
-    .. [1] A. Harutyunyan, M. G. Bellemare, T. Stepleton, and R. Munos. "Q(lambda) with
-           off-policy corrections". In: Algorithmic Learning Theory (2016), pp. 305-320.
+    .. [1] A. Harutyunyan, M. G. Bellemare, T. Stepleton, and R. Munos.
+           "Q(lambda) with off-policy corrections".
+           In: Algorithmic Learning Theory (2016), pp. 305-320.
            URL: https://arxiv.org/abs/1602.04951
 
     """

@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""CSV progress loader."""
+"""CSV performance metrics loader."""
 
 import csv
 from argparse import ArgumentParser
@@ -23,7 +23,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 import numpy as np
 from numpy import ndarray
 
-from actorch.visualizer.loaders.loader import Loader
+from actorch.vistool.loaders.loader import Loader
 
 
 __all__ = [
@@ -32,25 +32,25 @@ __all__ = [
 
 
 class CSVLoader(Loader):
-    """Load progress data from CSV progress files."""
+    """Load performance metrics from CSV log files."""
 
     # override
     @classmethod
     def load(
         cls,
-        input_dirpath: "str",
+        input_dir: "str",
         search_pattern: "str" = ".*",
         exclude_names: "Optional[Sequence[str]]" = None,
         **kwargs: "Any",
     ) -> "Dict[str, Dict[str, Tuple[ndarray, ndarray]]]":
         search_pattern = f"(?=.*\\.csv)(?={search_pattern})"  # noqa: W605
-        return super().load(input_dirpath, search_pattern, exclude_names, **kwargs)
+        return super().load(input_dir, search_pattern, exclude_names, **kwargs)
 
     # override
     @classmethod
-    def _load_data(cls, filepath: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
-        data = {}
-        with open(filepath) as f:
+    def _load_metrics(cls, file: "str", **kwargs: "Any") -> "Dict[str, ndarray]":
+        metrics = {}
+        with open(file) as f:
             content = csv.reader(f)
             headers = list(next(content))
             bodies = list(zip(*[row for row in content]))
@@ -61,13 +61,13 @@ class CSVLoader(Loader):
                         list(map(lambda x: float(x) if not x == "" else np.nan, body))
                     )
                     if np.isfinite(y_with_gaps).any():
-                        data[header] = y_with_gaps
+                        metrics[header] = y_with_gaps
                 except ValueError:
                     pass
-        return data
+        return metrics
 
     # override
     @classmethod
     def get_default_parser(cls, **parser_kwargs: "Any") -> "ArgumentParser":
-        parser_kwargs.setdefault("description", "Load CSV progress files")
+        parser_kwargs.setdefault("description", "Load CSV log files")
         return super().get_default_parser(**parser_kwargs)

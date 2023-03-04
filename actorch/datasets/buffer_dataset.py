@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Datasets."""
+"""Buffer dataset."""
 
 from typing import Dict, Iterator, Tuple, Union
 
@@ -49,7 +49,7 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
         buffer: "Buffer",
         batch_size: "Union[int, Schedule]",
         max_trajectory_length: "Union[int, float, Schedule]",
-        num_iters: "int",
+        num_iters: "Union[int, Schedule]",
     ) -> "None":
         """Initialize the object.
 
@@ -64,18 +64,10 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
             The schedule for argument `max_trajectory_length' of `buffer.sample`.
             If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
         num_iters:
-            The number of iterations for which `buffer.sample` is called.
-
-        Raises
-        ------
-        ValueError
-            If `num_iters` is not in the integer interval [1, inf).
+            The schedule for the number of iterations for which `buffer.sample` is called.
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
 
         """
-        if num_iters < 1 or not float(num_iters).is_integer():
-            raise ValueError(
-                f"`num_iters` ({num_iters}) must be in the integer interval [1, inf)"
-            )
         self.buffer = buffer
         self.batch_size = (
             batch_size
@@ -87,10 +79,15 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
             if isinstance(max_trajectory_length, Schedule)
             else ConstantSchedule(max_trajectory_length)
         )
-        self.num_iters = int(num_iters)
+        self.num_iters = (
+            num_iters
+            if isinstance(num_iters, Schedule)
+            else ConstantSchedule(num_iters)
+        )
         self._schedules = {
             "batch_size": self.batch_size,
             "max_trajectory_length": self.max_trajectory_length,
+            "num_iters": self.num_iters,
         }
 
     @property
@@ -107,15 +104,26 @@ class BufferDataset(IterableDataset, CheckpointableMixin):
 
     # override
     def __iter__(self) -> "Iterator[Tuple[Dict[str, ndarray], ndarray, ndarray]]":
+        num_iters = self.num_iters()
+        if num_iters < 0 or not float(num_iters).is_integer():
+            raise ValueError(
+                f"`num_iters` ({num_iters}) must be in the integer interval [0, inf)"
+            )
+        num_iters = int(num_iters)
         batch_size = self.batch_size()
         max_trajectory_length = self.max_trajectory_length()
         return (
             self.buffer.sample(batch_size, max_trajectory_length)
-            for _ in range(self.num_iters)
+            for _ in range(num_iters)
         )
 
     def __len__(self) -> "int":
-        return self.num_iters
+        num_iters = self.num_iters()
+        if num_iters < 0 or not float(num_iters).is_integer():
+            raise ValueError(
+                f"`num_iters` ({num_iters}) must be in the integer interval [0, inf)"
+            )
+        return int(num_iters)
 
     def __repr__(self) -> "str":
         return (

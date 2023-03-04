@@ -21,7 +21,6 @@ from typing import List, Optional, Sequence
 import torch
 from torch import Size, Tensor
 from torch.distributions import Distribution, constraints
-from torch.distributions.constraints import Constraint
 
 from actorch.distributions.constraints import cat
 from actorch.distributions.utils import is_discrete
@@ -35,6 +34,18 @@ __all__ = [
 class CatDistribution(Distribution):
     """Concatenate a sequence of base distributions with identical
     batch shapes along one of their event dimensions.
+
+    Examples
+    --------
+    >>> from torch.distributions import Categorical, Normal
+    >>>
+    >>> from actorch.distributions import CatDistribution
+    >>>
+    >>>
+    >>> loc = 0.0
+    >>> scale = 1.0
+    >>> logits = torch.as_tensor([0.25, 0.15, 0.10, 0.30, 0.20])
+    >>> distribution = CatDistribution([Normal(loc, scale), Categorical(logits)])
 
     """
 
@@ -102,6 +113,19 @@ class CatDistribution(Distribution):
             event_shape[dim] += expanded_event_shape[dim]
         super().__init__(batch_shape, torch.Size(event_shape), validate_args)
 
+    # override
+    def expand(
+        self,
+        batch_shape: "Size" = Size(),  # noqa: B008
+        _instance: "Optional[CatDistribution]" = None,
+    ) -> "CatDistribution":
+        new = self._get_checked_instance(CatDistribution, _instance)
+        new.base_dists = [d.expand(batch_shape) for d in self.base_dists]
+        new.dim = self.dim
+        super(CatDistribution, new).__init__(batch_shape, self.event_shape, False)
+        new._validate_args = self._validate_args
+        return new
+
     @property
     def is_discrete(self) -> "bool":
         """Whether the distribution is discrete.
@@ -115,7 +139,7 @@ class CatDistribution(Distribution):
 
     # override
     @property
-    def support(self) -> "Constraint":
+    def support(self) -> "cat":
         return cat(
             [
                 constraints.independent(
@@ -132,7 +156,6 @@ class CatDistribution(Distribution):
     def mean(self) -> "Tensor":
         return self._cat([d.mean for d in self.base_dists])
 
-    # override
     @property
     def mode(self) -> "Tensor":
         return self._cat([d.mode for d in self.base_dists])
@@ -165,6 +188,7 @@ class CatDistribution(Distribution):
         )
 
     # override
+    @property
     def has_rsample(self) -> "bool":
         return all(d.has_rsample for d in self.base_dists)
 
@@ -184,8 +208,10 @@ class CatDistribution(Distribution):
         chunks = input.split(split_sizes, dim=self.dim - len(self.event_shape))
         return [
             chunk.reshape(
-                *input.shape[: input.ndim - len(self.event_shape)],
-                *d.event_shape,
+                (
+                    *input.shape[: input.ndim - len(self.event_shape)],
+                    *d.event_shape,
+                )
             )
             for chunk, d in zip(chunks, self.base_dists)
         ]

@@ -15,7 +15,7 @@
 # ==============================================================================
 
 # Adapted from:
-# https://github.com/plotly/plotly.py/blob/8289eb1c85125e147c4ce14b56272ed50b99ef20/packages/python/plotly/plotly/package_data/templates/simple_white.json#1
+# https://github.com/plotly/plotly.py/blob/8289eb1c85125e147c4ce14b56272ed50b99ef20/packages/python/plotly/plotly/package_data/templates/simple_white.json
 
 
 data:
@@ -508,6 +508,7 @@ layout:
     linecolor: rgb(36,36,36)
     showgrid: true
     showline: true
+    mirror: all
     ticks: outside
     title:
       standoff: 15
@@ -519,6 +520,7 @@ layout:
     linecolor: rgb(36,36,36)
     showgrid: true
     showline: true
+    mirror: all
     ticks: outside
     title:
       standoff: 15

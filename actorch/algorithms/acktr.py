@@ -18,21 +18,20 @@
 
 from typing import Any, Callable, Dict, Optional, Union
 
-from gym import Env
+from gymnasium import Env
 from torch import Tensor
 from torch.distributions import Distribution
-from torch.nn.modules import loss
 from torch.nn.utils import clip_grad_norm_
-from torch.optim import Optimizer, lr_scheduler
+from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 from actorch.agents import Agent
-from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C
+from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C, Loss, LRScheduler
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
 from actorch.envs import BatchedEnv
 from actorch.models import Model
 from actorch.networks import DistributionParametrization, NormalizingFlow, Processor
-from actorch.optimizers import KFAC
+from actorch.preconditioners import KFAC, Preconditioner
 from actorch.samplers import Sampler
 from actorch.schedules import Schedule
 
@@ -48,8 +47,8 @@ class ACKTR(A2C):
 
     References
     ----------
-    .. [1] Y. Wu, E. Mansimov, R. B. Grosse, S. Liao, and J. Ba. "Scalable trust-region
-           method for deep reinforcement learning using Kronecker-factored approximation".
+    .. [1] Y. Wu, E. Mansimov, R. B. Grosse, S. Liao, and J. Ba.
+           "Scalable trust-region method for deep reinforcement learning using Kronecker-factored approximation".
            In: NeurIPS. 2017, pp. 5279-5288.
            URL: https://arxiv.org/abs/1708.05144
 
@@ -90,20 +89,20 @@ class ACKTR(A2C):
             policy_network_postprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             policy_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_preconditioner_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
+            policy_network_preconditioner_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Preconditioner]]]]" = None,
             policy_network_preconditioner_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_preconditioner_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            policy_network_preconditioner_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             policy_network_preconditioner_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             value_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             value_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., loss._Loss]]]]" = None,
+            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Loss]]]]" = None,
             value_network_loss_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             dataloader_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., DataLoader]]]]" = None,
             dataloader_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -209,7 +208,7 @@ class ACKTR(A2C):
         checkpoint[
             "policy_network_preconditioner"
         ] = self._policy_network_preconditioner.state_dict(
-            include_model=False,
+            include_module=False,
             include_grad_scaler=False,
         )
         if self._policy_network_preconditioner_lr_scheduler is not None:
@@ -253,7 +252,7 @@ class ACKTR(A2C):
 
     def _build_policy_network_preconditioner_lr_scheduler(
         self,
-    ) -> "Optional[lr_scheduler._LRScheduler]":
+    ) -> "Optional[LRScheduler]":
         if self.policy_network_preconditioner_lr_scheduler_builder is None:
             return
         if self.policy_network_preconditioner_lr_scheduler_config is None:

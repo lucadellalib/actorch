@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
-from gym import Env, Space
+from gymnasium import Env, Space
 from numpy import ndarray
 
 from actorch.envs.utils import Nested, batch_space, unbatch
@@ -53,7 +53,6 @@ class BatchedEnv(ABC):
             configuration and returns a base environment.
         base_env_config:
             The base environment configuration.
-            Argument `new_step_api` is set internally.
             Default to ``{}``.
         num_workers:
             The number of copies of the base environment.
@@ -73,7 +72,7 @@ class BatchedEnv(ABC):
         self.base_env_config = base_env_config or {}
         self.num_workers = num_workers
         with self.base_env_builder(
-            **self.base_env_config, new_step_api=True
+            **self.base_env_config,
         ) as base_env:
             self._single_observation_space = base_env.observation_space
             self._single_action_space = base_env.action_space
@@ -272,7 +271,7 @@ class BatchedEnv(ABC):
         Parameters
         ----------
         seed:
-            The batched seed, shape ``[N]``.
+            The batched seed, shape: ``[N]``.
             If a scalar or a scalar singleton, it
             is expanded to ``[seed + i for i in range(N)]`` or
             ``[seed[0] + i for i in range(N)]``, respectively.

@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 from torch import Size, Tensor, nn
-from torch.distributions import Distribution, Independent, ReshapeTransform
+from torch.distributions import Distribution, Independent, ReshapeTransform, constraints
 
 from actorch.distributions import (
     CatDistribution,
@@ -163,6 +163,8 @@ class Network(nn.Module):
         self.distribution_parametrizations = distribution_parametrizations
         self.model_config = model_config or {}
         self.distribution_configs = distribution_configs
+        for k, v in normalizing_flows.items():
+            normalizing_flows[k] = WrappedNormalizingFlow(v)
         self.normalizing_flows = nn.ModuleDict(normalizing_flows)
         model_in_shapes = {
             in_modality_name: preprocessor.out_shape
@@ -188,7 +190,7 @@ class Network(nn.Module):
                         )
                     model_out_shapes[key] = param_shape
         model = model_builder(model_in_shapes, model_out_shapes, **self.model_config)
-        example_inputs, example_states, _ = model.get_example_inputs()
+        example_inputs, example_states, _ = model.get_example_inputs((2,))
         self._state_preprocessors, self._state_postprocessors = {}, {}
         for key, example_state in example_states.items():
             shape = example_state.shape[1:]
@@ -364,17 +366,17 @@ class Network(nn.Module):
         Parameters
         ----------
         input:
-            The flat input, shape ``[*B, I]``.
+            The flat input, shape: ``[*B, I]``.
         state:
-            The flat state, shape ``[*B_star, S]``.
+            The flat state, shape: ``[*B_star, S]``.
         mask:
             The boolean tensor indicating which batch elements are
             valid (True) and which are not (False), shape: ``[*B]``.
 
         Returns
         -------
-            - The flat output, shape ``[*B, O]``;
-            - the possibly updated flat state, shape ``[*B_star, S]``.
+            - The flat output, shape: ``[*B, O]``;
+            - the possibly updated flat state, shape: ``[*B_star, S]``.
 
         """
         output, state = self.wrapped_model(input, state, mask)
@@ -419,3 +421,72 @@ class Network(nn.Module):
                 return output.reshape(batch_shape + ((-1,) if out_shape else ()))
             outputs.append(output.reshape(*batch_shape, -1))
         return torch.cat(outputs, dim=-1)
+
+
+class WrappedNormalizingFlow(NormalizingFlow):
+    """Thin wrapper around a normalizing flow that handles
+    attribute access when using parallelization strategies
+    (e.g. distributed data parallel).
+
+    """
+
+    model: "NormalizingFlow"
+    """The underlying normalizing flow."""
+
+    # override
+    def __init__(self, model: "NormalizingFlow") -> "None":
+        """Initialize the object.
+
+        Parameters
+        ----------
+        model:
+            The normalizing flow to wrap.
+
+        """
+        super().__init__()
+        self.model = model
+
+    # override
+    @property
+    def is_constant_jacobian(self) -> "bool":
+        if hasattr(self.model, "is_constant_jacobian"):
+            return self.model.is_constant_jacobian
+        return self.model.module.is_constant_jacobian
+
+    # override
+    @property
+    def domain(self) -> "constraints.Constraint":
+        if hasattr(self.model, "domain"):
+            return self.model.domain
+        return self.model.module.domain
+
+    # override
+    @property
+    def codomain(self) -> "constraints.Constraint":
+        if hasattr(self.model, "codomain"):
+            return self.model.codomain
+        return self.model.module.codomain
+
+    # override
+    def _call(self, x: "Tensor") -> "Tensor":
+        return self.model(x)
+
+    # override
+    def _inverse(self, y: "Tensor") -> "Tensor":
+        return self.model(y, method="_inverse")
+
+    # override
+    def log_abs_det_jacobian(self, x: "Tensor", y: "Tensor") -> "Tensor":
+        return self.model(x, y, method="log_abs_det_jacobian")
+
+    # override
+    def forward_shape(self, shape: "Size") -> "Size":
+        if hasattr(self.model, "forward_shape"):
+            return self.model.forward_shape(shape)
+        return self.model.module.forward_shape(shape)
+
+    # override
+    def inverse_shape(self, shape: "Size") -> "Size":
+        if hasattr(self.model, "inverse_shape"):
+            return self.model.inverse_shape(shape)
+        return self.model.module.inverse_shape(shape)

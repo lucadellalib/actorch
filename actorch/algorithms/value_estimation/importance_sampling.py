@@ -82,11 +82,13 @@ def importance_sampling(
 
     References
     ----------
-    .. [1] D. Precup, R. S. Sutton, and S. Singh. "Eligibility traces for off-policy
-           policy evaluation". In: ICML. 2000.
+    .. [1] D. Precup, R. S. Sutton, and S. Singh.
+           "Eligibility traces for off-policy policy evaluation".
+           In: ICML. 2000.
            URL: https://scholarworks.umass.edu/cs_faculty_pubs/80/
-    .. [2] D. Precup, R. S. Sutton, and S. Dasgupta. "Off-policy temporal-difference
-           learning with function approximation". In: ICML. 2001, pp. 417-424.
+    .. [2] D. Precup, R. S. Sutton, and S. Dasgupta.
+           "Off-policy temporal-difference learning with function approximation".
+           In: ICML. 2001, pp. 417-424.
            URL: https://www.cs.mcgill.ca/~dprecup/publications/PSD-01.pdf
 
     """

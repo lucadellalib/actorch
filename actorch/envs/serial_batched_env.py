@@ -20,8 +20,8 @@ from copy import deepcopy
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
-from gym import Env
-from gym.utils import seeding
+from gymnasium import Env
+from gymnasium.utils import seeding
 from numpy import ndarray
 
 from actorch.envs.batched_env import BatchedEnv
@@ -51,8 +51,7 @@ class SerialBatchedEnv(BatchedEnv):
         )
         self._envs = []
         for _ in range(num_workers):
-            env = self.base_env_builder(**self.base_env_config, new_step_api=True)
-            env.new_step_api = True
+            env = self.base_env_builder(**self.base_env_config)
             self._envs.append(env)
         self._observation_buffer = [
             unflatten(
@@ -70,9 +69,7 @@ class SerialBatchedEnv(BatchedEnv):
     # override
     def _reset(self, idx: "Sequence[int]") -> "Tuple[Nested[ndarray], ndarray]":
         for i in idx:
-            self._observation_buffer[i], self._info[i] = self._envs[i].reset(
-                return_info=True
-            )
+            self._observation_buffer[i], self._info[i] = self._envs[i].reset()
         observation = batch(self.observation_space, self._observation_buffer)  # Copy
         return observation, deepcopy(self._info)
 

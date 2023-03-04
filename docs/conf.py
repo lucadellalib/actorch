@@ -32,14 +32,14 @@ import os
 import sys
 
 
-_ROOT_DIRPATH = os.path.dirname(os.path.realpath(__file__))
+_ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
 
-sys.path.insert(0, _ROOT_DIRPATH)
+sys.path.insert(0, _ROOT_DIR)
 
 
 # -- Project information -----------------------------------------------------
 
-with open(os.path.join(_ROOT_DIRPATH, "actorch", "version.py")) as f:
+with open(os.path.join(_ROOT_DIR, "actorch", "version.py")) as f:
     tmp = {}
     exec(f.read(), tmp)
     _VERSION = tmp["VERSION"]
@@ -104,4 +104,4 @@ html_logo = "_static/images/actorch-logo.png"
 
 html_favicon = "_static/images/actorch-favicon.png"
 
-autoapi_dirs = [os.path.join(_ROOT_DIRPATH, "actorch")]
+autoapi_dirs = [os.path.join(_ROOT_DIR, "actorch")]

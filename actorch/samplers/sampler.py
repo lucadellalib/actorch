@@ -20,7 +20,7 @@ import time
 from typing import Any, Dict, Iterator, Optional, Sequence, Tuple, Union
 
 import numpy as np
-from gym import Env
+from gymnasium import Env
 from numpy import ndarray
 
 from actorch.agents import Agent
@@ -203,7 +203,7 @@ class Sampler:
         ):
             if self._next_observation is None:
                 # First call
-                self._next_observation, info = self.env.reset(return_info=True)
+                self._next_observation, info = self.env.reset()
                 # Callbacks
                 for callback in self.callbacks:
                     callback.on_episode_start(self._stats, info)
@@ -237,7 +237,7 @@ class Sampler:
                 # Callbacks
                 for callback in self.callbacks:
                     callback.on_episode_end(self._stats)
-                self._next_observation, info = self.env.reset(return_info=True)
+                self._next_observation, info = self.env.reset()
                 # Callbacks
                 for callback in self.callbacks:
                     callback.on_episode_start(self._stats, info)

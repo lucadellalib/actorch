@@ -96,8 +96,9 @@ def retrace(
 
     References
     ----------
-    .. [1] R. Munos, T. Stepleton, A. Harutyunyan, and M. G. Bellemare. "Safe and
-           Efficient Off-Policy Reinforcement Learning". In: NeurIPS. 2016, pp. 1054-1062.
+    .. [1] R. Munos, T. Stepleton, A. Harutyunyan, and M. G. Bellemare.
+           "Safe and Efficient Off-Policy Reinforcement Learning".
+           In: NeurIPS. 2016, pp. 1054-1062.
            URL: https://arxiv.org/abs/1606.02647
 
     """

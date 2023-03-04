@@ -68,15 +68,17 @@ def lambda_return(
     -------
         - The (possibly distributional) lambda returns,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape ``[B, T]``.
+        - the corresponding advantages, shape: ``[B, T]``.
 
     References
     ----------
-    .. [1] R. S. Sutton and A. G. Barto. "Reinforcement Learning: An Introduction".
+    .. [1] R. S. Sutton and A. G. Barto.
+           "Reinforcement Learning: An Introduction".
            MIT Press, 1998.
            URL: http://incompleteideas.net/sutton/book/ebook/node74.html
-    .. [2] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel. "High-Dimensional
-           Continuous Control Using Generalized Advantage Estimation". In: ICLR. 2016.
+    .. [2] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel.
+           "High-Dimensional Continuous Control Using Generalized Advantage Estimation".
+           In: ICLR. 2016.
            URL: https://arxiv.org/abs/1506.02438
 
     """

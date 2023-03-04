@@ -60,7 +60,7 @@ class Hydra(Model):
     # override
     def _setup(self) -> "None":
         self._setup_tails()
-        example_inputs = self.get_example_inputs()
+        example_inputs = self.get_example_inputs((2,))
         torso_example_input, _ = self._forward_tails(*example_inputs)
         torso_in_shape = torso_example_input.shape[1:]
         self._setup_torso(torso_in_shape)

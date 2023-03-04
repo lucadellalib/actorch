@@ -100,8 +100,8 @@ def sync_polyak(
     For each `target_param` in `target_module`,
     for each `source_param` in `source_module`:
     `target_param` =
-        (1 - `polyak_weight`) * `target_param` +
-        `polyak_weight` * `source_param`.
+        (1 - `polyak_weight`) * `target_param`
+        + `polyak_weight` * `source_param`.
 
     Parameters
     ----------
@@ -134,6 +134,7 @@ def sync_polyak(
     if polyak_weight == 1.0:
         target_module.load_state_dict(source_module.state_dict())
         return
+    # Update parameters
     target_params = target_module.parameters()
     source_params = source_module.parameters()
     with torch.no_grad():
@@ -142,6 +143,14 @@ def sync_polyak(
             target_param *= (1 - polyak_weight) / polyak_weight
             target_param += source_param
             target_param *= polyak_weight
+    # Update buffers
+    target_buffers = target_module.buffers()
+    source_buffers = source_module.buffers()
+    for target_buffer, source_buffer in zip(target_buffers, source_buffers):
+        # Update in-place
+        target_buffer *= (1 - polyak_weight) / polyak_weight
+        target_buffer += source_buffer
+        target_buffer *= polyak_weight
 
 
 def init_mock_train_session() -> "None":

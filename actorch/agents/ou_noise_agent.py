@@ -19,12 +19,13 @@
 from typing import Tuple, Union
 
 import numpy as np
-from gym.spaces import Space
+from gymnasium.spaces import Space
 from numpy import ndarray
 from torch import device
 
 from actorch.agents.stochastic_agent import StochasticAgent
 from actorch.networks import PolicyNetwork
+from actorch.schedules import ConstantSchedule, Schedule
 
 
 __all__ = [
@@ -37,7 +38,8 @@ class OUNoiseAgent(StochasticAgent):
 
     References
     ----------
-    .. [1] G. E. Uhlenbeck and L. S. Ornstein. "On the Theory of the Brownian Motion".
+    .. [1] G. E. Uhlenbeck and L. S. Ornstein.
+           "On the Theory of the Brownian Motion".
            In: Phys. Rev. 1930, pp. 823-841.
            URL: https://doi.org/10.1103/PhysRev.36.823
 
@@ -59,9 +61,9 @@ class OUNoiseAgent(StochasticAgent):
         clip_action: "bool" = True,
         device: "Union[device, str]" = "cpu",
         num_random_timesteps: "int" = 0,
-        mean: "float" = 0.0,
-        volatility: "float" = 0.1,
-        reversion_speed: "float" = 0.15,
+        mean: "Union[float, Schedule]" = 0.0,
+        volatility: "Union[float, Schedule]" = 0.1,
+        reversion_speed: "Union[float, Schedule]" = 0.15,
     ) -> "None":
         """Initialize the object.
 
@@ -83,33 +85,30 @@ class OUNoiseAgent(StochasticAgent):
             The number of initial timesteps for which
             a random prediction is returned.
         mean:
-            The noise Ornstein-Uhlenbeck process mean
-            (`mu` in the literature).
+            The schedule for the noise Ornstein-Uhlenbeck process
+            mean (`mu` in the literature). If a number, it is
+            wrapped in an `actorch.schedules.ConstantSchedule`.
         volatility:
-            The noise Ornstein-Uhlenbeck process volatility
-            (`sigma` in the literature).
+            The schedule for the noise Ornstein-Uhlenbeck process
+            volatility (`sigma` in the literature). If a number,
+            it is wrapped in an `actorch.schedules.ConstantSchedule`.
         reversion_speed:
-            The noise Ornstein-Uhlenbeck process reversion
-            speed (`theta` in the literature).
-
-        Raises
-        ------
-        ValueError
-            If `volatility` or `reversion_speed` are not in
-            the interval (0, inf).
+            The schedule for the noise Ornstein-Uhlenbeck process
+            reversion speed (`theta` in the literature). If a number,
+            it is wrapped in an `actorch.schedules.ConstantSchedule`.
 
         """
-        if volatility <= 0.0:
-            raise ValueError(
-                f"`volatility` ({volatility}) must be in the interval (0, inf)"
-            )
-        if reversion_speed <= 0.0:
-            raise ValueError(
-                f"`reversion_speed` ({reversion_speed}) must be in the interval (0, inf)"
-            )
-        self.mean = mean
-        self.volatility = volatility
-        self.reversion_speed = reversion_speed
+        self.mean = mean if isinstance(mean, Schedule) else ConstantSchedule(mean)
+        self.volatility = (
+            volatility
+            if isinstance(volatility, Schedule)
+            else ConstantSchedule(volatility)
+        )
+        self.reversion_speed = (
+            reversion_speed
+            if isinstance(reversion_speed, Schedule)
+            else ConstantSchedule(reversion_speed)
+        )
         self._ou_state = None
         super().__init__(
             policy_network,
@@ -119,13 +118,16 @@ class OUNoiseAgent(StochasticAgent):
             device,
             num_random_timesteps,
         )
+        self._schedules["mean"] = self.mean
+        self._schedules["volatility"] = self.volatility
+        self._schedules["reversion_speed"] = self.reversion_speed
 
     # override
     def _reset(self, mask: "ndarray") -> "None":
         super()._reset(mask)
         if self._ou_state is None:
-            self._ou_state = np.full(self._batch_size or 1, self.mean)
-        self._ou_state[mask] = self.mean
+            self._ou_state = np.full(self._batch_size or 1, self.mean())
+        self._ou_state[mask] = self.mean()
 
     # override
     def _stochastic_predict(
@@ -133,14 +135,24 @@ class OUNoiseAgent(StochasticAgent):
     ) -> "Tuple[ndarray, ndarray]":
         flat_action, log_prob = super(StochasticAgent, self)._predict(flat_observation)
         flat_action = flat_action.astype(np.float32)
-        flat_action += self._ou_state
+        flat_action += self._ou_state[..., None]
         self._step()
         return flat_action, log_prob
 
     def _step(self) -> "None":
+        volatility = self.volatility()
+        if volatility <= 0.0:
+            raise ValueError(
+                f"`volatility` ({volatility}) must be in the interval (0, inf)"
+            )
+        reversion_speed = self.reversion_speed()
+        if reversion_speed <= 0.0:
+            raise ValueError(
+                f"`reversion_speed` ({reversion_speed}) must be in the interval (0, inf)"
+            )
         delta = np.random.normal(
-            self.reversion_speed * (self.mean - self._ou_state),
-            self.volatility,
+            reversion_speed * (self.mean() - self._ou_state),
+            volatility,
             len(self._ou_state),
         )
         self._ou_state += delta

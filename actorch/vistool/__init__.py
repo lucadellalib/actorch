@@ -14,8 +14,22 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Progress plotters."""
+"""VisTool."""
 
-from actorch.visualizer.plotters.matplotlib_plotter import *
-from actorch.visualizer.plotters.plotly_plotter import *
-from actorch.visualizer.plotters.plotter import *
+try:
+    import matplotlib
+    import numpy
+    import plotly
+    import scipy
+    import tensorboard
+    import tqdm
+    import yaml
+except ImportError:
+    raise ImportError(
+        "VisTool is not included in the default installation. "
+        "Run `pip install actorch[vistool]` to install it"
+    )
+
+from actorch.vistool.loaders import *
+from actorch.vistool.main import *
+from actorch.vistool.plotters import *

@@ -20,17 +20,16 @@ import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
-from gym import Env
+from gymnasium import Env
 from numpy import ndarray
 from torch import Tensor
 from torch.cuda.amp import autocast
 from torch.distributions import Distribution
-from torch.nn.modules import loss
-from torch.optim import Optimizer, lr_scheduler
-from torch.utils.data import DataLoader, TensorDataset
+from torch.optim import Optimizer
+from torch.utils.data import DataLoader
 
 from actorch.agents import Agent
-from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C
+from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C, Loss, LRScheduler
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
 from actorch.algorithms.value_estimation import lambda_return
 from actorch.buffers import Buffer
@@ -53,12 +52,16 @@ class AWR(A2C):
 
     References
     ----------
-    .. [1] X. B. Peng, A. Kumar, G. Zhang, and S. Levine. "Advantage-Weighted
-           Regression: Simple and Scalable Off-Policy Reinforcement Learning".
+    .. [1] X. B. Peng, A. Kumar, G. Zhang, and S. Levine.
+           "Advantage-Weighted Regression: Simple and Scalable Off-Policy Reinforcement Learning".
            In: arXiv. 2019.
            URL: https://arxiv.org/abs/1910.00177
 
     """
+
+    _UPDATE_BUFFER_DATASET_SCHEDULES_AFTER_TRAIN_EPOCH = True  # override
+
+    _RESET_BUFFER = False  # override
 
     # override
     class Config(dict):
@@ -95,16 +98,16 @@ class AWR(A2C):
             policy_network_postprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             policy_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             value_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             value_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., loss._Loss]]]]" = None,
+            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Loss]]]]" = None,
             value_network_loss_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             buffer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Buffer]]]]" = None,
             buffer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -115,8 +118,11 @@ class AWR(A2C):
             trace_decay: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.95,
             num_updates_per_iter: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 1000,
             batch_size: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 128,
+            max_trajectory_length: "Tunable[RefOrFutureRef[Union[int, float, Schedule]]]" = float(  # noqa: B008
+                "inf"
+            ),
             weight_clip: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 20.0,
-            temperature: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 1.0,
+            temperature: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.05,
             normalize_advantage: "Tunable[RefOrFutureRef[bool]]" = False,
             entropy_coeff: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.01,
             max_grad_l2_norm: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = float(  # noqa: B008
@@ -185,6 +191,7 @@ class AWR(A2C):
                 trace_decay=trace_decay,
                 num_updates_per_iter=num_updates_per_iter,
                 batch_size=batch_size,
+                max_trajectory_length=max_trajectory_length,
                 weight_clip=weight_clip,
                 temperature=temperature,
                 normalize_advantage=normalize_advantage,
@@ -212,6 +219,8 @@ class AWR(A2C):
             self.num_updates_per_iter = ConstantSchedule(self.num_updates_per_iter)
         if not isinstance(self.batch_size, Schedule):
             self.batch_size = ConstantSchedule(self.batch_size)
+        if not isinstance(self.max_trajectory_length, Schedule):
+            self.max_trajectory_length = ConstantSchedule(self.max_trajectory_length)
         if not isinstance(self.weight_clip, Schedule):
             self.weight_clip = ConstantSchedule(self.weight_clip)
         if not isinstance(self.temperature, Schedule):
@@ -233,8 +242,6 @@ class AWR(A2C):
     def _checkpoint(self, value: "Dict[str, Any]") -> "None":
         super()._checkpoint = value
         self.trace_decay.load_state_dict(value["trace_decay"])
-        self.num_updates_per_iter.load_state_dict(value["num_updates_per_iter"])
-        self.batch_size.load_state_dict(value["batch_size"])
         self.weight_clip.load_state_dict(value["weight_clip"])
         self.temperature.load_state_dict(value["temperature"])
 
@@ -249,7 +256,7 @@ class AWR(A2C):
         if self.buffer_dataset_config is None:
             self.buffer_dataset_config = {
                 "batch_size": self.batch_size,
-                "max_trajectory_length": float("inf"),
+                "max_trajectory_length": self.max_trajectory_length,
                 "num_iters": self.num_updates_per_iter,
             }
         return super()._build_buffer_dataset()
@@ -258,15 +265,27 @@ class AWR(A2C):
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
         self.trace_decay.step()
-        self.num_updates_per_iter.step()
-        self.batch_size.step()
         self.weight_clip.step()
         self.temperature.step()
+        result["trace_decay"] = self.trace_decay()
+        result["num_updates_per_iter"] = self.num_updates_per_iter()
+        result["batch_size"] = self.batch_size()
+        result["max_trajectory_length"] = (
+            self.max_trajectory_length()
+            if self.max_trajectory_length() != float("inf")
+            else "inf"
+        )
+        result["weight_clip"] = self.weight_clip()
+        result["temperature"] = self.temperature()
+        result["buffer_num_experiences"] = self._buffer.num_experiences
+        result["buffer_num_full_trajectories"] = self._buffer.num_full_trajectories
+        result.pop("num_return_steps", None)
         return result
 
     # override
     def _train_on_batch(
         self,
+        idx: "int",
         experiences: "Dict[str, Tensor]",
         is_weight: "Tensor",
         mask: "Tensor",
@@ -297,7 +316,7 @@ class AWR(A2C):
                 advantages -= advantages_mean
                 advantages *= mask
                 advantages_stddev = (
-                    ((advantages ** 2).sum(dim=1, keepdim=True) / length)
+                    ((advantages**2).sum(dim=1, keepdim=True) / length)
                     .sqrt()
                     .clamp(min=1e-6)
                 )
@@ -333,10 +352,15 @@ class AWR(A2C):
             raise ValueError(
                 f"`entropy_coeff` ({entropy_coeff}) must be in the interval [0, inf)"
             )
-        clip_param = self.clip_param()
-        if clip_param < 0.0:
+        weight_clip = self.weight_clip()
+        if weight_clip <= 0.0:
             raise ValueError(
-                f"`clip_param` ({clip_param}) must be in the interval [0, inf)"
+                f"`weight_clip` ({weight_clip}) must be in the interval (0, inf)"
+            )
+        temperature = self.temperature()
+        if temperature <= 0.0:
+            raise ValueError(
+                f"`temperature` ({temperature}) must be in the interval (0, inf)"
             )
         with (
             autocast(**self.enable_amp)
@@ -344,16 +368,11 @@ class AWR(A2C):
             else contextlib.suppress()
         ):
             advantage = advantages[mask]
-            old_log_prob = experiences["log_prob"][mask]
             self._policy_network(experiences["observation"], mask=mask)
             policy = self._policy_network.distribution
             log_prob = policy.log_prob(experiences["action"])[mask]
-            ratio = (log_prob - old_log_prob).exp()
-            surrogate_loss = advantage * ratio
-            clipped_surrogate_loss = advantage * ratio.clamp(
-                1.0 - clip_param, 1.0 + clip_param
-            )
-            loss = -torch.min(surrogate_loss, clipped_surrogate_loss)
+            weight = (advantage / temperature).exp().clamp(max=weight_clip)
+            loss = -weight * log_prob
             entropy_bonus = None
             if entropy_coeff != 0.0:
                 entropy_bonus = -entropy_coeff * policy.entropy()[mask]
@@ -362,8 +381,8 @@ class AWR(A2C):
         optimize_result = self._optimize_policy_network(loss)
         result = {
             "advantage": advantage.mean().item(),
+            "weight": weight.mean().item(),
             "log_prob": log_prob.mean().item(),
-            "old_log_prob": old_log_prob.mean().item(),
             "loss": loss.item(),
         }
         if entropy_bonus is not None:

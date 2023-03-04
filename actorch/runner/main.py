@@ -16,7 +16,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Run experiment."""
+"""Runner main script."""
 
 import hashlib
 import logging
@@ -40,7 +40,7 @@ from actorch.utils import get_system_info, import_module, pretty_print
 
 __all__ = [
     "ExperimentParams",
-    "Run",
+    "Runner",
 ]
 
 
@@ -60,14 +60,14 @@ class ExperimentParams(dict):
         ----------
         run_kwargs:
             The keyword arguments to pass to `ray.tune.run`
-            (see https://docs.ray.io/en/latest/tune/api_docs/execution.html#tune-run).
+            (see https://docs.ray.io/en/releases-1.13.0/tune/api_docs/execution.html#tune-run for Ray 1.13.0).
 
         """
         super().__init__(**run_kwargs)
 
 
-class Run:
-    """Run experiment."""
+class Runner:
+    """Runner main script."""
 
     @classmethod
     def main(cls, args: "Namespace") -> "tune.ExperimentAnalysis":  # noqa: C901
@@ -90,9 +90,9 @@ class Run:
             If the configuration file is invalid.
 
         """
-        config_filepath = os.path.realpath(args.config_filepath)
-        experiment_name = os.path.splitext(os.path.basename(config_filepath))[0]
-        config = import_module(config_filepath)
+        config_file = os.path.realpath(args.config_file)
+        experiment_name = os.path.splitext(os.path.basename(config_file))[0]
+        config = import_module(config_file)
         if not hasattr(config, "experiment_params"):
             raise ValueError(
                 "Invalid configuration file: `experiment_params` undefined"
@@ -102,7 +102,7 @@ class Run:
         if "name" not in experiment_params:
             # Set run name
             current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            with open(config_filepath, "rb") as f:
+            with open(config_file, "rb") as f:
                 md5_hash = f"md5-{hashlib.md5(f.read()).hexdigest()}"
             run_name = os.path.join(
                 experiment_name, f"{current_time}_{socket.gethostname()}_{md5_hash}"
@@ -111,20 +111,20 @@ class Run:
 
         if "local_dir" not in experiment_params:
             experiment_params["local_dir"] = "experiments"
-        run_dirpath = os.path.join(
+        run_dir = os.path.join(
             experiment_params["local_dir"], experiment_params["name"]
         )
         try:
             # Copy configuration file
-            os.makedirs(run_dirpath, exist_ok=True)
-            shutil.copy(config_filepath, run_dirpath)
+            os.makedirs(run_dir, exist_ok=True)
+            shutil.copy(config_file, run_dir)
         except Exception as e:
             _LOGGER.warning(f"Could not copy configuration file: {e}")
 
         try:
             # Freeze requirements
             requirements = subprocess.check_output(["pip", "freeze"])
-            with open(os.path.join(run_dirpath, "requirements.txt"), "wb") as f:
+            with open(os.path.join(run_dir, "requirements.txt"), "wb") as f:
                 f.write(requirements)
         except Exception as e:
             _LOGGER.warning(f"Could not freeze requirements: {e}")
@@ -177,7 +177,7 @@ class Run:
                 for v in ray.cluster_resources()
                 if v.startswith("node:")
             ]
-            with open(os.path.join(run_dirpath, "system-info.txt"), "w") as f:
+            with open(os.path.join(run_dir, "system-info.txt"), "w") as f:
                 f.write("\n".join([pretty_print(v) for v in system_infos]))
         except Exception as e:
             _LOGGER.warning(f"Could not log system information: {e}")
@@ -214,12 +214,12 @@ class Run:
         parser_kwargs.setdefault("description", "Run experiment")
         parser = ArgumentParser(**parser_kwargs)
         parser.add_argument(
-            "config_filepath",
+            "config_file",
             help=(
                 "absolute or relative path to the configuration file, i.e. a "
                 "Python script that defines a dict named `experiment_params` "
                 "with keyword arguments to pass to `ray.tune.run` "
-                "(see https://docs.ray.io/en/latest/tune/api_docs/execution.html#tune-run)"
+                f"(see https://docs.ray.io/en/releases-{ray.__version__}/tune/api_docs/execution.html#tune-run)"
             ),
             metavar="config-file",
         )
@@ -238,16 +238,17 @@ class Run:
                 process.kill()
 
 
-def _main() -> "None":
+def main() -> "None":
+    """Runner entry point."""
     try:
-        parser = Run.get_default_parser()
+        parser = Runner.get_default_parser()
         args = parser.parse_args()
         print("------------------- Start ------------------")
-        Run.main(args)
+        Runner.main(args)
         print("------------------- Done -------------------")
     except KeyboardInterrupt:
         print("---- Exiting early (Keyboard Interrupt) ----")
 
 
 if __name__ == "__main__":
-    _main()
+    main()

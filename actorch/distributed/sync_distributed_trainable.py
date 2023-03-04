@@ -352,13 +352,13 @@ class SyncDistributedTrainable(DistributedTrainable):
     # override
     def save_checkpoint(self, tmp_checkpoint_dir: "str") -> "str":
         checkpoint_obj = ray.get(self._workers[0].save_to_object.remote())
-        checkpoint_filepath = TrainableUtil.create_from_pickle(
+        checkpoint_file = TrainableUtil.create_from_pickle(
             checkpoint_obj, tmp_checkpoint_dir
         )
         for ip in self._remote_node_ips:
             self._node_syncer.set_worker_ip(ip)
             self._node_syncer.sync_down()
-        return checkpoint_filepath
+        return checkpoint_file
 
     # override
     def load_checkpoint(self, checkpoint: "str") -> "None":
@@ -437,13 +437,13 @@ class SyncDistributedTrainable(DistributedTrainable):
 
         # Setup workers
         worker_config = self.build_config(self.worker_config)
-        workers_dirpath = os.path.join(self.logdir, "workers")
+        workers_dir = os.path.join(self.logdir, "workers")
         ray.get(
             [
                 worker.init.remote(
                     config=worker_config,
                     logger_creator=lambda config: logger_creator(
-                        worker_config, workers_dirpath, rank
+                        worker_config, workers_dir, rank
                     ),
                 )
                 for rank, worker in enumerate(workers)

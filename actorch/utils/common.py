@@ -23,7 +23,7 @@ import platform
 from datetime import datetime
 from functools import singledispatch, update_wrapper
 from types import ModuleType
-from typing import Any, Callable, Dict, Generic, Optional, Sequence, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, TypeVar, Union
 
 import GPUtil
 import psutil
@@ -32,8 +32,6 @@ from ray.tune.utils.util import SafeFallbackEncoder
 
 
 __all__ = [
-    "CheckpointableMixin",
-    "FutureRef",
     "get_system_info",
     "import_module",
     "pretty_print",
@@ -42,128 +40,6 @@ __all__ = [
 
 
 _T = TypeVar("_T")
-
-
-class CheckpointableMixin:
-    """Mixin that implements PyTorch-like checkpointing functionalities."""
-
-    _STATE_VARS: "Sequence[str]"
-
-    def state_dict(
-        self, exclude_keys: "Optional[Sequence[str]]" = None
-    ) -> "Dict[str, Any]":
-        """Return the object state dict.
-
-        Parameters
-        ----------
-        exclude_keys:
-            The keys in the object state dict
-            whose values must not be saved.
-            Default to ``[]``.
-
-        Returns
-        -------
-            The object state dict.
-
-        """
-        if exclude_keys is None:
-            exclude_keys = []
-        state_dict = {}
-        for k in self._STATE_VARS:
-            if k in exclude_keys:
-                continue
-            v = self.__dict__[k]
-            if hasattr(v, "state_dict"):
-                state_dict[k] = v.state_dict()
-            else:
-                state_dict[k] = v
-        return state_dict
-
-    def load_state_dict(
-        self, state_dict: "Dict[str, Any]", strict: "bool" = True
-    ) -> "None":
-        """Load a state dict into the object.
-
-        Parameters
-        ----------
-        state_dict:
-            The state dict.
-        strict:
-            True to enforce that keys in `state_dict`
-            match the keys in the object state dict,
-            False otherwise.
-
-        Raises
-        ------
-        RuntimeError
-            If `strict` is True and keys in `state_dict`
-            do not match the keys in the object state dict.
-
-        """
-        missing_keys = []
-        for k in self._STATE_VARS:
-            if k not in state_dict:
-                missing_keys.append(k)
-                continue
-            v = state_dict[k]
-            if hasattr(self.__dict__[k], "load_state_dict"):
-                self.__dict__[k].load_state_dict(v)
-            else:
-                self.__dict__[k] = v
-        if strict:
-            error_msgs = []
-            if missing_keys:
-                error_msgs.append(f"Missing keys: {missing_keys}")
-            unexpected_keys = list(state_dict.keys() - self._STATE_VARS)
-            if unexpected_keys:
-                error_msgs.append(f"Unexpected keys: {unexpected_keys}")
-            if error_msgs:
-                error_msg = "\n\t".join(error_msgs)
-                raise RuntimeError(f"Invalid state dict:\n\t{error_msg}")
-
-
-class FutureRef(Generic[_T]):
-    """Reference to an object that does not exist yet."""
-
-    def __init__(self, ref: "str") -> "None":
-        """Initialize the object.
-
-        Parameters
-        ----------
-        ref:
-            The reference to the future object
-            expressed as a string.
-
-        """
-        self.ref = ref
-
-    def resolve(_self, **context: "Any") -> "_T":
-        """Resolve the future reference based on the given context.
-
-        Parameters
-        ----------
-        context:
-            The context, i.e. a dict that maps names of the
-            local variables that can be used for resolving
-            the reference to the local variables themselves.
-
-        Returns
-        -------
-            The resolved reference.
-
-        Raises
-        ------
-        ValueError
-            If an invalid future reference is given.
-
-        """
-        try:
-            return eval(_self.ref, globals(), context)
-        except Exception:
-            raise ValueError(f"Invalid future reference: {_self.ref}")
-
-    def __repr__(self) -> "str":
-        return f"{type(self).__name__}(ref: {self.ref})"
 
 
 def get_system_info() -> "Dict[str, Any]":

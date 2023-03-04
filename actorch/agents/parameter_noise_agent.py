@@ -20,13 +20,14 @@ from typing import Callable, Tuple, Union
 
 import torch
 import torch.nn.functional as F
-from gym.spaces import Space
+from gymnasium.spaces import Space
 from numpy import ndarray
 from torch import device
 from torch.distributions import Distribution, kl_divergence
 
 from actorch.agents.stochastic_agent import StochasticAgent
 from actorch.networks import PolicyNetwork
+from actorch.schedules import ConstantSchedule, Schedule
 
 
 __all__ = [
@@ -57,8 +58,9 @@ def compute_policy_distance_ddpg(
 
     References
     ----------
-    .. [1] M. Plappert, R. Houthooft, P. Dhariwal, S. Sidor, R. Y. Chen, X. Chen, T. Asfour,
-           P. Abbeel, and M. Andrychowicz. "Parameter Space Noise for Exploration".
+    .. [1] M. Plappert, R. Houthooft, P. Dhariwal, S. Sidor, R. Y. Chen,
+           X. Chen, T. Asfour, P. Abbeel, and M. Andrychowicz.
+           "Parameter Space Noise for Exploration".
            In: ICLR. 2018.
            URL: https://arxiv.org/abs/1706.01905
 
@@ -87,8 +89,9 @@ def compute_policy_distance_dqn(
 
     References
     ----------
-    .. [1] M. Plappert, R. Houthooft, P. Dhariwal, S. Sidor, R. Y. Chen, X. Chen, T. Asfour,
-           P. Abbeel, and M. Andrychowicz. "Parameter Space Noise for Exploration".
+    .. [1] M. Plappert, R. Houthooft, P. Dhariwal, S. Sidor, R. Y. Chen,
+           X. Chen, T. Asfour, P. Abbeel, and M. Andrychowicz.
+           "Parameter Space Noise for Exploration".
            In: ICLR. 2018.
            URL: https://arxiv.org/abs/1706.01905
 
@@ -125,8 +128,9 @@ class ParameterNoiseAgent(StochasticAgent):
 
     References
     ----------
-    .. [1] M. Plappert, R. Houthooft, P. Dhariwal, S. Sidor, R. Y. Chen, X. Chen, T. Asfour,
-           P. Abbeel, and M. Andrychowicz. "Parameter Space Noise for Exploration".
+    .. [1] M. Plappert, R. Houthooft, P. Dhariwal, S. Sidor, R. Y. Chen,
+           X. Chen, T. Asfour, P. Abbeel, and M. Andrychowicz.
+           "Parameter Space Noise for Exploration".
            In: ICLR. 2018.
            URL: https://arxiv.org/abs/1706.01905
 
@@ -150,9 +154,9 @@ class ParameterNoiseAgent(StochasticAgent):
         clip_action: "bool" = True,
         device: "Union[device, str]" = "cpu",
         num_random_timesteps: "int" = 0,
-        initial_stddev: "float" = 0.1,
-        target_stddev: "float" = 0.2,
-        adaption_coeff: "float" = 1.01,
+        initial_stddev: "Union[float, Schedule]" = 0.1,
+        target_stddev: "Union[float, Schedule]" = 0.2,
+        adaption_coeff: "Union[float, Schedule]" = 1.01,
     ) -> "None":
         """Initialize the object.
 
@@ -179,40 +183,42 @@ class ParameterNoiseAgent(StochasticAgent):
             The number of initial timesteps for which
             a random prediction is returned.
         initial_stddev:
-            The noise Gaussian distribution initial standard
-            deviation (`sigma_0` in the literature).
+            The schedule for the noise Gaussian distribution initial
+            standard deviation (`sigma_0` in the literature).
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
         target_stddev:
-            The noise Gaussian distribution target standard
-            deviation (`delta` in the literature).
+            The schedule for the noise Gaussian distribution target
+            standard deviation (`delta` in the literature).
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
         adaption_coeff:
-            The noise Gaussian distribution adaption
-            coefficient (`alpha` in the literature).
-
-        Raises
-        ------
-        ValueError
-            If `initial_stddev` or `target_stddev` are not in
-            the interval (0, inf) or `adaption_coeff` is not
-            in the interval (1, inf).
+            The schedule for the noise Gaussian distribution
+            adaption coefficient (`alpha` in the literature).
+            If a number, it is wrapped in an `actorch.schedules.ConstantSchedule`.
 
         """
+        self.policy_distance_fn = policy_distance_fn
+        self.initial_stddev = (
+            initial_stddev
+            if isinstance(initial_stddev, Schedule)
+            else ConstantSchedule(initial_stddev)
+        )
+        self.target_stddev = (
+            target_stddev
+            if isinstance(target_stddev, Schedule)
+            else ConstantSchedule(target_stddev)
+        )
+        self.adaption_coeff = (
+            adaption_coeff
+            if isinstance(adaption_coeff, Schedule)
+            else ConstantSchedule(adaption_coeff)
+        )
+
+        initial_stddev = self.initial_stddev()
         if initial_stddev <= 0.0:
             raise ValueError(
                 f"`initial_stddev` ({initial_stddev}) must be in the interval (0, inf)"
             )
-        if target_stddev <= 0.0:
-            raise ValueError(
-                f"`target_stddev` ({target_stddev}) must be in the interval (0, inf)"
-            )
-        if adaption_coeff <= 1.0:
-            raise ValueError(
-                f"`adaption_coeff` ({adaption_coeff}) must be in the interval (1, inf)"
-            )
-        self.policy_distance_fn = policy_distance_fn
-        self.initial_stddev = initial_stddev
-        self.target_stddev = target_stddev
-        self.adaption_coeff = adaption_coeff
-        self._stddev = self.initial_stddev
+        self._stddev = initial_stddev
         self._noises = None
         super().__init__(
             policy_network,
@@ -222,6 +228,9 @@ class ParameterNoiseAgent(StochasticAgent):
             device,
             num_random_timesteps,
         )
+        self._schedules["initial_stddev"] = self.initial_stddev
+        self._schedules["target_stddev"] = self.target_stddev
+        self._schedules["adaption_coeff"] = self.adaption_coeff
 
     # override
     def _reset(self, mask: "ndarray") -> "None":
@@ -251,6 +260,21 @@ class ParameterNoiseAgent(StochasticAgent):
         return flat_action, log_prob
 
     def _step(self) -> "None":
+        initial_stddev = self.initial_stddev()
+        if initial_stddev <= 0.0:
+            raise ValueError(
+                f"`initial_stddev` ({initial_stddev}) must be in the interval (0, inf)"
+            )
+        target_stddev = self.target_stddev()
+        if target_stddev <= 0.0:
+            raise ValueError(
+                f"`target_stddev` ({target_stddev}) must be in the interval (0, inf)"
+            )
+        adaption_coeff = self.adaption_coeff()
+        if adaption_coeff <= 1.0:
+            raise ValueError(
+                f"`adaption_coeff` ({adaption_coeff}) must be in the interval (1, inf)"
+            )
         # For simplicity, do not sample from experience
         # replay buffer but from observation space
         flat_observation = self._flat_observation_space.sample()
@@ -268,10 +292,10 @@ class ParameterNoiseAgent(StochasticAgent):
         self._policy_network_state = policy_network_state_backup
         # Compute policy distance
         policy_distance = self.policy_distance_fn(policy, noisy_policy)
-        if policy_distance < self.target_stddev:
-            self._stddev *= self.adaption_coeff
+        if policy_distance < target_stddev:
+            self._stddev *= adaption_coeff
         else:
-            self._stddev /= self.adaption_coeff
+            self._stddev /= adaption_coeff
 
     # override
     def __repr__(self) -> "str":

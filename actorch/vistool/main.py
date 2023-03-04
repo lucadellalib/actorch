@@ -16,22 +16,22 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Visualize experiment progress."""
+"""VisTool main script."""
 
 from argparse import ArgumentParser, Namespace
 from typing import Any
 
-from actorch.visualizer.loaders import CSVLoader, TensorBoardLoader
-from actorch.visualizer.plotters import MatplotlibPlotter, PlotlyPlotter
+from actorch.vistool.loaders import CSVLoader, TensorBoardLoader
+from actorch.vistool.plotters import MatplotlibPlotter, PlotlyPlotter
 
 
 __all__ = [
-    "Visualize",
+    "VisTool",
 ]
 
 
-class Visualize:
-    """Visualize experiment progress."""
+class VisTool:
+    """VisTool main script."""
 
     _LOADERS = {
         "csv": CSVLoader,
@@ -84,7 +84,7 @@ class Visualize:
             The default command line argument parser.
 
         """
-        parser_kwargs.setdefault("description", "Visualize experiment progress")
+        parser_kwargs.setdefault("description", "Plot performance metrics")
         parser = ArgumentParser(**parser_kwargs)
         subparsers = parser.add_subparsers(
             title="backend", dest="backend", required=True
@@ -125,16 +125,17 @@ class Visualize:
         return parser
 
 
-def _main() -> "None":
+def main() -> "None":
+    """VisTool entry point."""
     try:
-        parser = Visualize.get_default_parser()
+        parser = VisTool.get_default_parser()
         args = parser.parse_args()
         print("------------------- Start ------------------")
-        Visualize.main(args)
+        VisTool.main(args)
         print("------------------- Done -------------------")
     except KeyboardInterrupt:
         print("---- Exiting early (Keyboard Interrupt) ----")
 
 
 if __name__ == "__main__":
-    _main()
+    main()

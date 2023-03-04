@@ -19,7 +19,7 @@
 import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
-from gym import Env
+from gymnasium import Env
 from numpy import ndarray
 from torch import Tensor
 from torch.cuda.amp import GradScaler, autocast
@@ -51,18 +51,25 @@ __all__ = [
 ]
 
 
+LRScheduler = lr_scheduler._LRScheduler
+"""Learning rate scheduler."""
+
+
 class REINFORCE(Algorithm):
     """REINFORCE.
 
     References
     ----------
-    .. [1] R. J. Williams. "Simple Statistical Gradient-Following Algorithms
-           for Connectionist Reinforcement Learning". In: Mach. Learn. 1992, pp. 229-256.
+    .. [1] R. J. Williams.
+           "Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning".
+           In: Mach. Learn. 1992, pp. 229-256.
            URL: https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
 
     """
 
     _UPDATE_BUFFER_DATASET_SCHEDULES_AFTER_TRAIN_EPOCH = False  # override
+
+    _RESET_BUFFER = True
 
     # override
     class Config(dict):
@@ -98,7 +105,7 @@ class REINFORCE(Algorithm):
             policy_network_postprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             policy_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             dataloader_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., DataLoader]]]]" = None,
             dataloader_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -261,7 +268,7 @@ class REINFORCE(Algorithm):
 
     def _build_policy_network_optimizer_lr_scheduler(
         self,
-    ) -> "Optional[lr_scheduler._LRScheduler]":
+    ) -> "Optional[LRScheduler]":
         if self.policy_network_optimizer_lr_scheduler_builder is None:
             return
         if self.policy_network_optimizer_lr_scheduler_config is None:
@@ -274,15 +281,24 @@ class REINFORCE(Algorithm):
     # override
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
+        if self._RESET_BUFFER:
+            self._buffer.reset()
         self.discount.step()
         self.entropy_coeff.step()
         self.max_grad_l2_norm.step()
-        self._buffer.reset()
+        result["discount"] = self.discount()
+        result["entropy_coeff"] = self.entropy_coeff()
+        result["max_grad_l2_norm"] = (
+            self.max_grad_l2_norm()
+            if self.max_grad_l2_norm() != float("inf")
+            else "inf"
+        )
         return result
 
     # override
     def _train_on_batch(
         self,
+        idx: "int",
         experiences: "Dict[str, Tensor]",
         is_weight: "Tensor",
         mask: "Tensor",

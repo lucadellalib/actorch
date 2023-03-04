@@ -36,13 +36,24 @@ class Finite(Distribution):
 
     References
     ----------
-    .. [1] M. G. Bellemare, W. Dabney, and R. Munos. "A Distributional Perspective on
-           Reinforcement Learning". In: ICML. 2017, pp. 449-458.
+    .. [1] M. G. Bellemare, W. Dabney, and R. Munos.
+           "A Distributional Perspective on Reinforcement Learning".
+           In: ICML. 2017, pp. 449-458.
            URL: https://arxiv.org/abs/1707.06887
-    .. [2] G. Barth-Maron, M. W. Hoffman, D. Budden, W. Dabney, D. Horgan, D. TB,
-           A. Muldal, N. Heess, and T. Lillicrap. "Distributed Distributional
-           Deterministic Policy Gradients". In: ICLR. 2018.
+    .. [2] G. Barth-Maron, M. W. Hoffman, D. Budden, W. Dabney,
+           D. Horgan, D. TB, A. Muldal, N. Heess, and T. Lillicrap.
+           "Distributed Distributional Deterministic Policy Gradients".
+           In: ICLR. 2018.
            URL: https://arxiv.org/abs/1804.08617
+
+    Examples
+    --------
+    >>> from actorch.distributions import Finite
+    >>>
+    >>>
+    >>> logits = torch.as_tensor([0.25, 0.15, 0.10, 0.30, 0.20])
+    >>> atoms = torch.as_tensor([5.0, 7.5, 10.0, 12.5, 15.0])
+    >>> distribution = Finite(logits, atoms=atoms)
 
     """
 

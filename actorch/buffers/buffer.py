@@ -156,10 +156,10 @@ class Buffer(ABC, CheckpointableMixin):
             - The batched experiences, i.e. a dict whose key-value pairs are
               consistent with the given `spec` initialization argument, shape of
               ``experiences[name]``: ``[batch_size, max_trajectory_length, *spec[name]["shape"]]``;
-            - the batched importance sampling weight, shape ``[batch_size]``;
+            - the batched importance sampling weight, shape: ``[batch_size]``;
             - the mask, i.e. the boolean array indicating which trajectory
               elements are valid (True) and which are not (False),
-              shape ``[batch_size, max_trajectory_length]``.
+              shape: ``[batch_size, max_trajectory_length]``.
 
         Raises
         ------

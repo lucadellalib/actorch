@@ -23,7 +23,7 @@ from typing import Any
 
 from colorama import Fore, Style, init
 
-from actorch.runner import Run
+from actorch.runner import Runner
 from actorch.version import VERSION
 
 
@@ -54,12 +54,12 @@ _ASCII_LOGO = (
 class ACTorch:
     """ACTorch main script."""
 
-    _SCRIPTS = {"run": Run}
+    _SCRIPTS = {"run": Runner}
 
     try:
-        from actorch.visualizer import Visualize
+        from actorch.vistool import VisTool
 
-        _SCRIPTS["visualize"] = Visualize
+        _SCRIPTS["vistool"] = VisTool
     except ImportError as e:
         import warnings
 

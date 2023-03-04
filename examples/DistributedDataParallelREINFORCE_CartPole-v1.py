@@ -16,11 +16,10 @@
 
 """Train distributed data parallel REINFORCE on CartPole-v1."""
 
-# Navigate to `<path-to-repository>`, open a terminal and run:
-# cd examples
+# Navigate to `<path-to-repository>/examples`, open a terminal and run:
 # actorch run DistributedDataParallelREINFORCE_CartPole-v1.py
 
-import gym
+import gymnasium as gym
 from torch.optim import Adam
 
 from actorch import *
@@ -28,7 +27,8 @@ from actorch import *
 
 experiment_params = ExperimentParams(
     run_or_experiment=DistributedDataParallelREINFORCE,
-    stop={"training_iteration": 30},
+    stop={"training_iteration": 50},
+    # resources_per_trial={"cpu": 1, "gpu": 0},
     checkpoint_freq=10,
     checkpoint_at_end=True,
     log_to_file=True,
@@ -38,13 +38,13 @@ experiment_params = ExperimentParams(
         num_workers=2,
         num_cpus_per_worker=1,
         num_gpus_per_worker=0,
-        # REINFORCE configuration
+        # Algorithm configuration
         train_env_builder=lambda **config: ParallelBatchedEnv(
-            lambda **config: gym.make("CartPole-v1", **config),
+            lambda **kwargs: gym.make("CartPole-v1", **kwargs),
             config,
             num_workers=2,
         ),
-        train_num_episodes_per_iter=10,
+        train_num_episodes_per_iter=5,
         eval_freq=10,
         eval_env_config={"render_mode": None},
         eval_num_episodes_per_iter=10,
@@ -61,6 +61,6 @@ experiment_params = ExperimentParams(
         enable_amp=False,
         enable_reproducibility=True,
         log_sys_usage=True,
-        suppress_warnings=False,
+        suppress_warnings=True,
     ),
 )

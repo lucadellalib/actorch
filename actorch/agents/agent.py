@@ -20,7 +20,7 @@ from typing import Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
-from gym.spaces import Space
+from gymnasium.spaces import Space
 from numpy import ndarray
 from torch import device
 

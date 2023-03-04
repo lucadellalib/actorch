@@ -59,7 +59,8 @@ def monte_carlo_return(
 
     References
     ----------
-    .. [1] R. S. Sutton and A. G. Barto. "Reinforcement Learning: An Introduction".
+    .. [1] R. S. Sutton and A. G. Barto.
+           "Reinforcement Learning: An Introduction".
            MIT Press, 1998.
            URL: http://incompleteideas.net/sutton/book/ebook/node51.html
 

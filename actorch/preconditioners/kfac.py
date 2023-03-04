@@ -17,21 +17,20 @@
 """Kronecker-factored approximate curvature preconditioner."""
 
 # Adapted from:
-# https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/utils.py#L1
-# https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/kfac_preconditioner.py#L1
+# https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/utils.py
+# https://github.com/gpauloski/kfac_pytorch/blob/ee8c1ec78db66b3063adf27e3290c7329e6b8a67/kfac/kfac_preconditioner.py
 
 import warnings
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor
+from torch import Tensor, nn
 from torch.cuda.amp import GradScaler
 from torch.distributions.kl import _Match as Match
-from torch.optim import Optimizer
 
+from actorch.preconditioners.preconditioner import Preconditioner
 from actorch.utils import CheckpointableMixin
 
 
@@ -237,8 +236,9 @@ class KFACConvNd(KFACModule):
 
     References
     ----------
-    .. [1] R. Grosse and J. Martens. "A Kronecker-factored approximate Fisher matrix
-           for convolution layers". In: ICML. 2016, pp. 573-582.
+    .. [1] R. Grosse and J. Martens.
+           "A Kronecker-factored approximate Fisher matrix for convolution layers".
+           In: ICML. 2016, pp. 573-582.
            URL: https://arxiv.org/abs/1602.01407
 
     """
@@ -298,21 +298,24 @@ class KFACConvNd(KFACModule):
         return x
 
 
-class KFAC(Optimizer):
+class KFAC(Preconditioner):
     """Kronecker-factored approximate curvature preconditioner.
 
-    Precondition the gradients of a model with a layer-wise Fisher
+    Precondition the gradients of a module with a layer-wise Fisher
     information matrix approximation.
 
     References
     ----------
-    .. [1] J. Martens and R. Grosse. "Optimizing Neural Networks with
-           Kronecker-factored Approximate Curvature". In: ICML. 2015, pp. 2408-2417.
+    .. [1] J. Martens and R. Grosse.
+           "Optimizing Neural Networks with Kronecker-factored Approximate Curvature".
+           In: ICML. 2015, pp. 2408-2417.
            URL: https://arxiv.org/abs/1503.05671
 
     Examples
     --------
     >>> import torch
+    >>>
+    >>> from actorch.preconditioners import KFAC
     >>>
     >>>
     >>> model = torch.nn.Linear(64, 32)
@@ -339,7 +342,7 @@ class KFAC(Optimizer):
     # override
     def __init__(
         self,
-        model: "nn.Module",
+        module: "nn.Module",
         lr: "float" = 0.1,
         factor_decay: "float" = 0.95,
         damping: "float" = 0.001,
@@ -353,8 +356,8 @@ class KFAC(Optimizer):
 
         Parameters
         ----------
-        model:
-            The model to perform K-FAC updates on.
+        module:
+            The module to perform K-FAC updates on.
         lr:
             The learning rate.
         factor_decay:
@@ -417,14 +420,14 @@ class KFAC(Optimizer):
             "epsilon": epsilon,
         }
         # K-FAC does not register any parameters
-        super().__init__([torch.empty(1)], defaults)
-        self.state["model"] = model
+        super(Preconditioner, self).__init__([torch.empty(1)], defaults)
+        self.state["module"] = module
         self.state["grad_scaler"] = grad_scaler
-        self._register_submodules(model)
+        self._register_submodules(module)
 
     @property
-    def model(self) -> "nn.Module":
-        return self.state.get("model")
+    def module(self) -> "nn.Module":
+        return self.state.get("module")
 
     @property
     def lr(self) -> "float":
@@ -461,15 +464,15 @@ class KFAC(Optimizer):
     # override
     def state_dict(
         self,
-        include_model: "bool" = True,
+        include_module: "bool" = True,
         include_grad_scaler: "bool" = True,
     ) -> "Dict[str, Any]":
         """Return the preconditioner state dict.
 
         Parameters
         ----------
-        include_model:
-            True to include the model state dict,
+        include_module:
+            True to include the module state dict,
             False otherwise.
         include_grad_scaler:
             True to include the gradient scaler state dict,
@@ -480,11 +483,7 @@ class KFAC(Optimizer):
             The preconditioner state dict.
 
         """
-        state_dict = super().state_dict()
-        if include_model:
-            state_dict["state"]["model"] = self.model.state_dict()
-        else:
-            del state_dict["state"]["model"]
+        state_dict = super().state_dict(include_module)
         if include_grad_scaler:
             state_dict["state"]["grad_scaler"] = None
             if self.grad_scaler:
@@ -499,24 +498,24 @@ class KFAC(Optimizer):
     # override
     def load_state_dict(self, state_dict: "Dict[str, Any]") -> "None":
         state_dict = {k: v for k, v in state_dict.items()}  # Copy
-        model_state = state_dict["state"].pop("model", None)
-        if model_state:
-            self.model.load_state_dict(model_state)
+        module_state = state_dict["state"].pop("module", None)
+        if module_state:
+            self.module.load_state_dict(module_state)
         grad_scaler_state = state_dict["state"].pop("grad_scaler", None)
         if self.grad_scaler and grad_scaler_state:
             self.grad_scaler.load_state_dict(grad_scaler_state)
         module_states = state_dict["state"].pop("_modules")
         if len(module_states) != len(self._modules):
             raise ValueError(
-                f"The number of loaded module states ({len(module_states)}) must be "
-                f"equal to the number of modules in the model ({len(self._modules)})"
+                f"The number of loaded submodule states ({len(module_states)}) must be "
+                f"equal to the number of submodules in the module ({len(self._modules)})"
             )
         for module, state in zip(self._modules.values(), module_states):
             module.load_state_dict(state)
-        # Workaround to prevent self.model, self.grad_scaler
+        # Workaround to prevent self.module, self.grad_scaler
         # and self._modules from being deleted
         state_backup = {k: v for k, v in self.state.items()}  # Copy
-        super().load_state_dict(state_dict)
+        super(Preconditioner, self).load_state_dict(state_dict)
         self.state.update(state_backup)
 
     # override
@@ -605,7 +604,7 @@ class KFAC(Optimizer):
     def __repr__(self) -> "str":
         return (
             f"{type(self).__name__}"
-            f"(model: {self.model}, "
+            f"(module: {self.module}, "
             f"lr: {self.lr}, "
             f"factor_decay: {self.factor_decay}, "
             f"damping: {self.damping}, "

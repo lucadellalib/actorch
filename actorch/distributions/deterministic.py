@@ -31,7 +31,17 @@ __all__ = [
 
 
 class Deterministic(Finite):
-    """Distribution that returns a single deterministic value with probability equal to 1."""
+    """Distribution that returns a single deterministic value with probability equal to 1.
+
+    Examples
+    --------
+    >>> from actorch.distributions import Deterministic
+    >>>
+    >>>
+    >>> value = 1.0
+    >>> distribution = Deterministic(value)
+
+    """
 
     has_rsample = True
     arg_constraints = {

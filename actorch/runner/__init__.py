@@ -17,5 +17,5 @@
 """Runner."""
 
 from actorch.runner.loggers import *
+from actorch.runner.main import *
 from actorch.runner.progress_reporters import *
-from actorch.runner.run import *

@@ -20,7 +20,7 @@ from functools import singledispatch
 from typing import Container, Dict, Hashable, List, Sequence, Tuple, TypeVar, Union
 
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 from numpy import ndarray
 from scipy import stats
 
@@ -70,7 +70,7 @@ def batch_space(space: "spaces.Space", batch_size: "int" = 1) -> "spaces.Space":
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import batch_space
     >>>
@@ -123,7 +123,7 @@ def unnest_space(
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import unnest_space
     >>>
@@ -169,7 +169,7 @@ def get_space_bounds(space: "spaces.Space") -> "Tuple[Nested, Nested]":
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import get_space_bounds
     >>>
@@ -354,7 +354,7 @@ def unnest(
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import unnest
     >>>
@@ -408,7 +408,7 @@ def nest(
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import nest
     >>>
@@ -462,7 +462,7 @@ def batch(
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import batch
     >>>
@@ -516,7 +516,7 @@ def unbatch(
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import unbatch
     >>>
@@ -575,7 +575,7 @@ def get_log_prob(
     Notes
     -----
     Register a custom space type as follows:
-    >>> from gym import spaces
+    >>> from gymnasium import spaces
     >>>
     >>> from actorch.envs.utils import get_log_prob
     >>>

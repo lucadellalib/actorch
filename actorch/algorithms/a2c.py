@@ -20,7 +20,7 @@ import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
 
 import torch
-from gym import Env, spaces
+from gymnasium import Env, spaces
 from numpy import ndarray
 from ray.tune import Trainable
 from torch import Tensor
@@ -28,12 +28,16 @@ from torch.cuda.amp import autocast
 from torch.distributions import Distribution
 from torch.nn.modules import loss
 from torch.nn.utils import clip_grad_norm_
-from torch.optim import Adam, Optimizer, lr_scheduler
+from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
 
 from actorch.agents import Agent
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
-from actorch.algorithms.reinforce import REINFORCE, DistributedDataParallelREINFORCE
+from actorch.algorithms.reinforce import (
+    REINFORCE,
+    DistributedDataParallelREINFORCE,
+    LRScheduler,
+)
 from actorch.algorithms.utils import prepare_model
 from actorch.algorithms.value_estimation import n_step_return
 from actorch.distributions import Deterministic
@@ -56,13 +60,17 @@ __all__ = [
 ]
 
 
+Loss = loss._Loss
+"""Loss function."""
+
+
 class A2C(REINFORCE):
     """Advantage Actor-Critic.
 
     References
     ----------
-    .. [1] V. Mnih, A. P. Badia, M. Mirza, A. Graves, T. Lillicrap, T. Harley, D. Silver,
-           and K. Kavukcuoglu. "Asynchronous Methods for Deep Reinforcement Learning".
+    .. [1] V. Mnih, A. P. Badia, M. Mirza, A. Graves, T. Lillicrap, T. Harley, D. Silver, and K. Kavukcuoglu.
+           "Asynchronous Methods for Deep Reinforcement Learning".
            In: ICML. 2016, pp. 1928-1937.
            URL: https://arxiv.org/abs/1602.01783
 
@@ -103,16 +111,16 @@ class A2C(REINFORCE):
             policy_network_postprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             policy_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             value_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             value_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., loss._Loss]]]]" = None,
+            value_network_loss_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Loss]]]]" = None,
             value_network_loss_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., lr_scheduler._LRScheduler]]]]" = None,
+            value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             dataloader_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., DataLoader]]]]" = None,
             dataloader_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -203,7 +211,9 @@ class A2C(REINFORCE):
         self._value_network = (
             self._build_value_network().train().to(self._device, non_blocking=True)
         )
-        self._value_network_loss = self._build_value_network_loss()
+        self._value_network_loss = (
+            self._build_value_network_loss().train().to(self._device, non_blocking=True)
+        )
         self._value_network_optimizer = self._build_value_network_optimizer()
         self._value_network_optimizer_lr_scheduler = (
             self._build_value_network_optimizer_lr_scheduler()
@@ -316,7 +326,7 @@ class A2C(REINFORCE):
         self._log_graph(value_network.wrapped_model.model, "value_network_model")
         return value_network
 
-    def _build_value_network_loss(self) -> "loss._Loss":
+    def _build_value_network_loss(self) -> "Loss":
         if self.value_network_loss_builder is None:
             self.value_network_loss_builder = torch.nn.MSELoss
         if self.value_network_loss_config is None:
@@ -349,7 +359,7 @@ class A2C(REINFORCE):
 
     def _build_value_network_optimizer_lr_scheduler(
         self,
-    ) -> "Optional[lr_scheduler._LRScheduler]":
+    ) -> "Optional[LRScheduler]":
         if self.value_network_optimizer_lr_scheduler_builder is None:
             return
         if self.value_network_optimizer_lr_scheduler_config is None:
@@ -363,11 +373,13 @@ class A2C(REINFORCE):
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
         self.num_return_steps.step()
+        result["num_return_steps"] = self.num_return_steps()
         return result
 
     # override
     def _train_on_batch(
         self,
+        idx: "int",
         experiences: "Dict[str, Tensor]",
         is_weight: "Tensor",
         mask: "Tensor",

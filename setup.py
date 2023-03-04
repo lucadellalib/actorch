@@ -22,7 +22,7 @@ import subprocess
 import sys
 
 
-_ROOT_DIRPATH = os.path.dirname(os.path.realpath(__file__))
+_ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 _WINDOWS_DEPENDENCIES = {
     "torch": "https://download.pytorch.org/whl/torch_stable.html",
@@ -38,10 +38,10 @@ def _preinstall_requirement(requirement, options=None):
         raise RuntimeError(f"{requirement} installation failed")
 
 
-def _parse_requirements(requirements_filepath):
-    requirements_filepath = os.path.realpath(requirements_filepath)
+def _parse_requirements(requirements_file):
+    requirements_file = os.path.realpath(requirements_file)
     requirements = []
-    with open(requirements_filepath, encoding="utf-8") as f:
+    with open(requirements_file, encoding="utf-8") as f:
         for requirement in f:
             # Ignore lines with `-f` flag
             if requirement.split(" ")[0] == "-f":
@@ -59,33 +59,33 @@ def _parse_requirements(requirements_filepath):
     return requirements
 
 
-with open(os.path.join(_ROOT_DIRPATH, "actorch", "version.py")) as f:
+with open(os.path.join(_ROOT_DIR, "actorch", "version.py")) as f:
     tmp = {}
     exec(f.read(), tmp)
     _VERSION = tmp["VERSION"]
     del tmp
 
-with open(os.path.join(_ROOT_DIRPATH, "README.md"), encoding="utf-8") as f:
+with open(os.path.join(_ROOT_DIR, "README.md"), encoding="utf-8") as f:
     _README = f.read()
 
 _REQUIREMENTS_SETUP = _parse_requirements(
-    os.path.join(_ROOT_DIRPATH, "requirements", "requirements-setup.txt")
+    os.path.join(_ROOT_DIR, "requirements", "requirements-setup.txt")
 )
 
 _REQUIREMENTS = _parse_requirements(
-    os.path.join(_ROOT_DIRPATH, "requirements", "requirements.txt")
+    os.path.join(_ROOT_DIR, "requirements", "requirements.txt")
 )
 
-_REQUIREMENTS_VISUALIZER = _parse_requirements(
-    os.path.join(_ROOT_DIRPATH, "requirements", "requirements-visualizer.txt")
+_REQUIREMENTS_VISTOOL = _parse_requirements(
+    os.path.join(_ROOT_DIR, "requirements", "requirements-vistool.txt")
 )
 
 _REQUIREMENTS_TEST = _parse_requirements(
-    os.path.join(_ROOT_DIRPATH, "requirements", "requirements-test.txt")
+    os.path.join(_ROOT_DIR, "requirements", "requirements-test.txt")
 )
 
 _REQUIREMENTS_DEV = _parse_requirements(
-    os.path.join(_ROOT_DIRPATH, "requirements", "requirements-dev.txt")
+    os.path.join(_ROOT_DIR, "requirements", "requirements-dev.txt")
 )
 
 # Manually preinstall setup requirements since build system specification in
@@ -146,11 +146,11 @@ setup(
     install_requires=_REQUIREMENTS,
     entry_points={"console_scripts": ["actorch=actorch.__main__:main"]},
     extras_require={
-        "visualizer": _REQUIREMENTS_VISUALIZER,
+        "vistool": _REQUIREMENTS_VISTOOL,
         "test": _REQUIREMENTS_TEST,
         "dev": _REQUIREMENTS_DEV,
         "all": list(
-            set(_REQUIREMENTS_VISUALIZER + _REQUIREMENTS_TEST + _REQUIREMENTS_DEV)
+            set(_REQUIREMENTS_VISTOOL + _REQUIREMENTS_TEST + _REQUIREMENTS_DEV)
         ),
     },
     python_requires=">=3.6",
