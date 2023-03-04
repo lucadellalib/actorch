@@ -455,6 +455,23 @@ class Algorithm(ABC, Trainable):
                 **kwargs,
             )
 
+    @classmethod
+    def rename(cls, name: "str") -> "Type[Algorithm]":
+        """Return a copy of this class with
+        name set to `name`.
+
+        Parameters
+        ----------
+        name:
+            The new name.
+
+        Returns
+        -------
+            The renamed class.
+
+        """
+        return type(name, (cls,), {})
+
     # override
     def setup(self, config: "Dict[str, Any]") -> "None":
         self.config = Algorithm.Config(**self.config)
@@ -1389,22 +1406,6 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
             )
 
     # override
-    def setup(self, config: "Dict[str, Any]") -> "None":
-        config = DistributedDataParallelAlgorithm.Config(**config)
-        self.log_sys_usage = config.pop("log_sys_usage")
-        config["reduction_mode"] = "sum"
-        super().setup(config)
-        self.config["log_sys_usage"] = self.log_sys_usage
-
-    # override
-    def reset_config(self, new_config: "Dict[str, Any]") -> "bool":
-        new_config = DistributedDataParallelAlgorithm.Config(**new_config)
-        if self.log_sys_usage != new_config.pop("log_sys_usage"):
-            return False
-        new_config["reduction_mode"] = "sum"
-        return super().reset_config(new_config)
-
-    # override
     @classmethod
     def get_worker_cls(cls) -> "Type[Trainable]":
         class Worker(cls._ALGORITHM_CLS):
@@ -1488,6 +1489,39 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
                 super()._seed()
 
         return Worker
+
+    @classmethod
+    def rename(cls, name: "str") -> "Type[DistributedDataParallelAlgorithm]":
+        """Return a copy of this class with
+        name set to `name`.
+
+        Parameters
+        ----------
+        name:
+            The new name.
+
+        Returns
+        -------
+            The renamed class.
+
+        """
+        return type(name, (cls,), {})
+
+    # override
+    def setup(self, config: "Dict[str, Any]") -> "None":
+        config = DistributedDataParallelAlgorithm.Config(**config)
+        self.log_sys_usage = config.pop("log_sys_usage")
+        config["reduction_mode"] = "sum"
+        super().setup(config)
+        self.config["log_sys_usage"] = self.log_sys_usage
+
+    # override
+    def reset_config(self, new_config: "Dict[str, Any]") -> "bool":
+        new_config = DistributedDataParallelAlgorithm.Config(**new_config)
+        if self.log_sys_usage != new_config.pop("log_sys_usage"):
+            return False
+        new_config["reduction_mode"] = "sum"
+        return super().reset_config(new_config)
 
     # override
     def _reduce(self, results: "Sequence[Dict[str, Any]]") -> "Dict[str, Any]":

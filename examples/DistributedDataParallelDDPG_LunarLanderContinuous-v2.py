@@ -31,14 +31,14 @@ class LayerNormFCNet(FCNet):
     # override
     def _setup_torso(self, in_shape):
         super()._setup_torso(in_shape)
-        idx = 0
-        for module in self.torso[:]:
-            idx += 1
+        torso = nn.Sequential()
+        for module in self.torso:
+            torso.append(module)
             if isinstance(module, nn.Linear):
-                self.torso.insert(
-                    idx, nn.LayerNorm(module.out_features, elementwise_affine=False)
+                torso.append(
+                    nn.LayerNorm(module.out_features, elementwise_affine=False)
                 )
-                idx += 1
+        self.torso = torso
 
 
 experiment_params = ExperimentParams(
