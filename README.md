@@ -112,7 +112,7 @@ and optional dependencies.
 Additionally, it installs a [git commit hook](https://git-scm.com/book/en/v2/Customizing-Git-Git-Hooks).
 Each time you commit, unit tests, static type checkers, code formatters and linters are
 run automatically. Run `pre-commit run --all-files` to check that the hook was successfully
-installed. For more details, see `pre-commit`'s [documentation](https://pre-commit.com).
+installed. For more details, see [`pre-commit`'s documentation](https://pre-commit.com).
 
 ---------------------------------------------------------------------------------------------------------
 
