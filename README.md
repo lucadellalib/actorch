@@ -36,7 +36,7 @@ Welcome to `actorch`, a deep reinforcement learning framework for fast prototypi
 - Batched and distributional value estimation (e.g. batched and distributional [Retrace](https://arxiv.org/abs/1606.02647) and [V-trace](https://arxiv.org/abs/1802.01561))
 - Data parallel and distributed data parallel multi-GPU training and evaluation
 - Automatic mixed precision training
-- Integration with [Ray Tune](https://docs.ray.io/en/latest/tune/index.html) for experiment execution and hyperparameter tuning at any scale
+- Integration with [Ray Tune](https://docs.ray.io/en/releases-1.13.0/tune/index.html) for experiment execution and hyperparameter tuning at any scale
 - Effortless experiment definition through Python-based configuration files
 - Built-in visualization tool to plot performance metrics
 - Modular object-oriented design
