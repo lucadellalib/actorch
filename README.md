@@ -119,7 +119,7 @@ installed. For more details, see [`pre-commit`'s documentation](https://pre-comm
 ## ▶️ Quickstart
 
 In this example we will solve the [OpenAI Gymnasium](https://gymnasium.farama.org/) environment
-`CartPole-v1` using REINFORCE.
+`CartPole-v1` using [REINFORCE](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf).
 Copy the following configuration in a file named `REINFORCE_CartPole-v1.py` (**with the
 same indentation**):
 
