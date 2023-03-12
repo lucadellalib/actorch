@@ -23,6 +23,7 @@ import ray
 import ray.train.torch  # Fix missing train.torch attribute
 import torch
 from ray import train
+from torch import Tensor
 from torch import distributed as dist
 from torch.nn import Module
 from torch.nn.parallel import DataParallel, DistributedDataParallel
@@ -32,9 +33,57 @@ __all__ = [
     "count_params",
     "freeze_params",
     "init_mock_train_session",
+    "normalize_",
     "prepare_model",
-    "sync_polyak",
+    "sync_polyak_",
 ]
+
+
+def normalize_(input, dim: "int" = 0, mask: "Optional[Tensor]" = None) -> "Tensor":
+    """Normalize a tensor along a dimension, by subtracting the mean
+    and then dividing by the standard deviation (in-place).
+
+    Parameters
+    ----------
+    input:
+        The tensor.
+    dim:
+        The dimension.
+    mask:
+        The boolean tensor indicating which elements
+        are valid (True) and which are not (False).
+        Default to ``torch.ones_like(input, dtype=torch.bool)``.
+
+    Returns
+    -------
+        The normalized tensor.
+
+    Examples
+    --------
+    >>> import torch
+    >>>
+    >>> from actorch.algorithms.utils import normalize_
+    >>>
+    >>>
+    >>> input = torch.randn(2,3)
+    >>> mask = torch.rand(2, 3) > 0.5
+    >>> output = normalize_(input, mask=mask)
+
+    """
+    if mask is None:
+        mask = torch.ones_like(input, dtype=torch.bool)
+    else:
+        input[~mask] = 0.0
+    length = mask.sum(dim=dim, keepdim=True)
+    input_mean = input.sum(dim=dim, keepdim=True) / length
+    input -= input_mean
+    input *= mask
+    input_stddev = (
+        ((input**2).sum(dim=dim, keepdim=True) / length).sqrt().clamp(min=1e-6)
+    )
+    input /= input_stddev
+    input *= mask
+    return input
 
 
 def count_params(module: "Module") -> "Tuple[int, int]":
@@ -51,16 +100,26 @@ def count_params(module: "Module") -> "Tuple[int, int]":
         - The number of trainable parameters;
         - the number of non-trainable parameters.
 
+    Examples
+    --------
+    >>> import torch
+    >>>
+    >>> from actorch.algorithms.utils import count_params
+    >>>
+    >>>
+    >>> model = torch.nn.Linear(4, 2)
+    >>> trainable_count, non_trainable_count = count_params(model)
+
     """
-    num_trainable_params, num_non_trainable_params = 0, 0
+    trainable_count, non_trainable_count = 0, 0
     for param in module.parameters():
         if param.requires_grad:
-            num_trainable_params += param.numel()
+            trainable_count += param.numel()
         else:
-            num_non_trainable_params += param.numel()
+            non_trainable_count += param.numel()
     for buffer in module.buffers():
-        num_non_trainable_params += buffer.numel()
-    return num_trainable_params, num_non_trainable_params
+        non_trainable_count += buffer.numel()
+    return trainable_count, non_trainable_count
 
 
 @contextmanager
@@ -72,6 +131,21 @@ def freeze_params(*modules: "Module") -> "Iterator[None]":
     ----------
     modules:
         The modules.
+
+    Examples
+    --------
+    >>> import torch
+    >>>
+    >>> from actorch.algorithms.utils import freeze_params
+    >>>
+    >>>
+    >>> policy_model = torch.nn.Linear(4, 2)
+    >>> value_model = torch.nn.Linear(2, 1)
+    >>> input = torch.randn(3, 4)
+    >>> with freeze_params(value_model):
+    ...     action = policy_model(input)
+    ...     loss = -value_model(action).mean()
+    >>> loss.backward()
 
     """
     params = [
@@ -89,19 +163,19 @@ def freeze_params(*modules: "Module") -> "Iterator[None]":
             param.requires_grad = True
 
 
-def sync_polyak(
+def sync_polyak_(
     source_module: "Module",
     target_module: "Module",
     polyak_weight: "float" = 0.001,
-) -> "None":
-    """Synchronize `source_module` with `target_module`
-    through Polyak averaging.
+) -> "Module":
+    """Synchronize a source module with a target module
+    through Polyak averaging (in-place).
 
-    For each `target_param` in `target_module`,
-    for each `source_param` in `source_module`:
-    `target_param` =
-        (1 - `polyak_weight`) * `target_param`
-        + `polyak_weight` * `source_param`.
+    For each `target_parameter` in `target_module`,
+    for each `source_parameter` in `source_module`:
+    `target_parameter` =
+        (1 - `polyak_weight`) * `target_parameter`
+        + `polyak_weight` * `source_parameter`.
 
     Parameters
     ----------
@@ -111,6 +185,10 @@ def sync_polyak(
         The target module.
     polyak_weight:
         The Polyak weight.
+
+    Returns
+    -------
+        The synchronized target module.
 
     Raises
     ------
@@ -124,16 +202,27 @@ def sync_polyak(
            In: SIAM Journal on Control and Optimization. 1992, pp. 838-855.
            URL: https://doi.org/10.1137/0330046
 
+    Examples
+    --------
+    >>> import torch
+    >>>
+    >>> from actorch.algorithms.utils import sync_polyak_
+    >>>
+    >>>
+    >>> model = torch.nn.Linear(4, 2)
+    >>> target_model = torch.nn.Linear(4, 2)
+    >>> sync_polyak_(model, target_model, polyak_weight=0.001)
+
     """
     if polyak_weight < 0.0 or polyak_weight > 1.0:
         raise ValueError(
             f"`polyak_weight` ({polyak_weight}) must be in the interval [0, 1]"
         )
     if polyak_weight == 0.0:
-        return
+        return target_module
     if polyak_weight == 1.0:
         target_module.load_state_dict(source_module.state_dict())
-        return
+        return target_module
     # Update parameters
     target_params = target_module.parameters()
     source_params = source_module.parameters()
@@ -151,6 +240,7 @@ def sync_polyak(
         target_buffer *= (1 - polyak_weight) / polyak_weight
         target_buffer += source_buffer
         target_buffer *= polyak_weight
+    return target_module
 
 
 def init_mock_train_session() -> "None":

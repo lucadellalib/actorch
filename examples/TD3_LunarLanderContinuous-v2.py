@@ -14,9 +14,10 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Twin Delayed Deep Deterministic Policy Gradient on LunarLanderContinuous-v2."""
+"""Train Twin Delayed Deep Deterministic Policy Gradient (TD3) on LunarLanderContinuous-v2."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
+# pip install gymnasium[box2d]
 # actorch run TD3_LunarLanderContinuous-v2.py
 
 import gymnasium as gym

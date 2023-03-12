@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Actor-Critic Kronecker-Factored Trust Region."""
+"""Actor-Critic Kronecker-Factored Trust Region (ACKTR)."""
 
 from typing import Any, Callable, Dict, Optional, Union
 
@@ -43,7 +43,7 @@ __all__ = [
 
 
 class ACKTR(A2C):
-    """Actor-Critic Kronecker-Factored Trust Region.
+    """Actor-Critic Kronecker-Factored Trust Region (ACKTR).
 
     References
     ----------
@@ -287,7 +287,7 @@ class ACKTR(A2C):
 
 
 class DistributedDataParallelACKTR(DistributedDataParallelA2C):
-    """Distributed data parallel Actor-Critic Kronecker-Factored Trust Region.
+    """Distributed data parallel Actor-Critic Kronecker-Factored Trust Region (ACKTR).
 
     See Also
     --------

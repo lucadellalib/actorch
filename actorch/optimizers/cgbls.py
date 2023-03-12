@@ -300,7 +300,7 @@ class CGBLS(optim.Optimizer):
 
         References
         ----------
-        .. [1] M.R. Hestenes, and E. Stiefel.
+        .. [1] M.R. Hestenes and E. Stiefel.
                "Methods of Conjugate Gradients for Solving Linear Systems".
                In: Journal of Research of the National Bureau of Standards. 1952, pp. 409-435.
                URL: http://dx.doi.org/10.6028/jres.049.044
@@ -389,7 +389,7 @@ class CGBLS(optim.Optimizer):
         loss, constraint = 0.0, 0.0
         for ratio in ratios:
             for i, step in enumerate(descent_steps):
-                params[i] -= ratio * step
+                params[i].copy_(prev_params[i] - ratio * step)
 
             loss = loss_fn()
             constraint = constraint_fn()
@@ -411,6 +411,6 @@ class CGBLS(optim.Optimizer):
                 warning_msg = " and".join(warning_msg.rsplit(",", 1))
                 _LOGGER.warning(warning_msg)
                 for i, prev_param in enumerate(prev_params):
-                    params[i] = prev_param
+                    params[i].copy_(prev_param)
 
         return loss, constraint

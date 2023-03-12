@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Twin Delayed Deep Deterministic Policy Gradient."""
+"""Twin Delayed Deep Deterministic Policy Gradient (TD3)."""
 
 import contextlib
 import copy
@@ -33,12 +33,12 @@ from torch.utils.data import DataLoader
 from actorch.agents import Agent
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
 from actorch.algorithms.ddpg import DDPG, DistributedDataParallelDDPG, Loss, LRScheduler
-from actorch.algorithms.utils import prepare_model, sync_polyak
+from actorch.algorithms.utils import prepare_model, sync_polyak_
 from actorch.algorithms.value_estimation import n_step_return
 from actorch.buffers import Buffer
 from actorch.envs import BatchedEnv
 from actorch.models import Model
-from actorch.networks import Processor
+from actorch.networks import Network, Processor
 from actorch.samplers import Sampler
 from actorch.schedules import ConstantSchedule, Schedule
 
@@ -50,13 +50,13 @@ __all__ = [
 
 
 class TD3(DDPG):
-    """Twin Delayed Deep Deterministic Policy Gradient.
+    """Twin Delayed Deep Deterministic Policy Gradient (TD3).
 
     References
     ----------
     .. [1] S. Fujimoto, H. van Hoof, and D. Meger.
            "Addressing Function Approximation Error in Actor-Critic Methods".
-           In: ICML. 2018, pp. 1587–1596.
+           In: ICML. 2018, pp. 1587-1596.
            URL: https://arxiv.org/abs/1802.09477
 
     """
@@ -201,19 +201,13 @@ class TD3(DDPG):
         self.config = TD3.Config(**self.config)
         self.config["_accept_kwargs"] = True
         super().setup(config)
-        self._twin_value_network = (
-            self._build_value_network().train().to(self._device, non_blocking=True)
-        )
-        self._twin_value_network_loss = (
-            self._build_value_network_loss().train().to(self._device, non_blocking=True)
-        )
+        self._twin_value_network = self._build_value_network()
+        self._twin_value_network_loss = self._build_value_network_loss()
         self._twin_value_network_optimizer = self._build_twin_value_network_optimizer()
         self._twin_value_network_optimizer_lr_scheduler = (
             self._build_twin_value_network_optimizer_lr_scheduler()
         )
-        self._target_twin_value_network = copy.deepcopy(self._twin_value_network)
-        self._target_twin_value_network.eval().to(self._device, non_blocking=True)
-        self._target_twin_value_network.requires_grad_(False)
+        self._target_twin_value_network = self._build_target_twin_value_network()
         if not isinstance(self.delay, Schedule):
             self.delay = ConstantSchedule(self.delay)
         if not isinstance(self.noise_stddev, Schedule):
@@ -297,6 +291,11 @@ class TD3(DDPG):
             **self.value_network_optimizer_lr_scheduler_config,
         )
 
+    def _build_target_twin_value_network(self) -> "Network":
+        target_twin_value_network = copy.deepcopy(self._twin_value_network)
+        target_twin_value_network.requires_grad_(False)
+        return target_twin_value_network.eval().to(self._device, non_blocking=True)
+
     # override
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
@@ -306,9 +305,10 @@ class TD3(DDPG):
         result["delay"] = self.delay()
         result["noise_stddev"] = self.noise_stddev()
         result["noise_clip"] = self.noise_clip()
-        result["buffer_num_experiences"] = result.pop("buffer_num_experiences")
+        result["max_grad_l2_norm"] = result.pop("max_grad_l2_norm", None)
+        result["buffer_num_experiences"] = result.pop("buffer_num_experiences", None)
         result["buffer_num_full_trajectories"] = result.pop(
-            "buffer_num_full_trajectories"
+            "buffer_num_full_trajectories", None
         )
         return result
 
@@ -398,6 +398,7 @@ class TD3(DDPG):
                 mask,
                 self.discount(),
                 self.num_return_steps(),
+                return_advantage=False,
             )
 
             # Compute action values
@@ -441,17 +442,17 @@ class TD3(DDPG):
             )
             # Synchronize
             if idx % sync_freq == 0:
-                sync_polyak(
+                sync_polyak_(
                     self._policy_network,
                     self._target_policy_network,
                     self.polyak_weight(),
                 )
-                sync_polyak(
+                sync_polyak_(
                     self._value_network,
                     self._target_value_network,
                     self.polyak_weight(),
                 )
-                sync_polyak(
+                sync_polyak_(
                     self._twin_value_network,
                     self._target_twin_value_network,
                     self.polyak_weight(),
@@ -475,10 +476,12 @@ class TD3(DDPG):
             action_values = action_values[mask]
             target = targets[mask]
             loss = self._twin_value_network_loss(action_values, target)
-            loss *= is_weight[:, None].expand_as(mask)[mask]
+            priority = None
+            if self._buffer.is_prioritized:
+                loss *= is_weight[:, None].expand_as(mask)[mask]
+                priority = loss.detach().abs().to("cpu").numpy()
             loss = loss.mean()
         optimize_result = self._optimize_twin_value_network(loss)
-        priority = None
         result = {
             "action_value": action_values.mean().item(),
             "target": target.mean().item(),
@@ -510,7 +513,7 @@ class TD3(DDPG):
 
 
 class DistributedDataParallelTD3(DistributedDataParallelDDPG):
-    """Distributed data parallel Twin Delayed Deep Deterministic Policy Gradient.
+    """Distributed data parallel Twin Delayed Deep Deterministic Policy Gradient (TD3).
 
     See Also
     --------

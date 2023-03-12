@@ -48,6 +48,8 @@ class Finite(Distribution):
 
     Examples
     --------
+    >>> import torch
+    >>>
     >>> from actorch.distributions import Finite
     >>>
     >>>

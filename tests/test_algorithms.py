@@ -123,6 +123,7 @@ signal.signal(signal.SIGINT, _cleanup)
         algorithms.AWR,
         algorithms.PPO,
         algorithms.REINFORCE,
+        algorithms.TRPO,
     ],
 )
 @pytest.mark.parametrize(
@@ -198,7 +199,9 @@ def test_algorithm_mixed(algorithm_cls, model_cls, space):
 @pytest.mark.parametrize(
     "algorithm_cls",
     [
+        algorithms.D3PG,
         algorithms.DDPG,
+        algorithms.SAC,
         algorithms.TD3,
     ],
 )

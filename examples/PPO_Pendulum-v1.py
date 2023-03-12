@@ -14,9 +14,10 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Proximal Policy Optimization on Pendulum-v1."""
+"""Train Proximal Policy Optimization (PPO) on Pendulum-v1."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
+# pip install gymnasium[classic_control]
 # actorch run PPO_Pendulum-v1.py
 
 import gymnasium as gym

@@ -43,7 +43,8 @@ def retrace(
     trace_decay: "float" = 1.0,
     max_is_weight_trace: "float" = 1.0,
     max_is_weight_advantage: "float" = 1.0,
-) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Union[Tensor, Distribution], Optional[Tensor]]":
     """Compute the (possibly distributional) Retrace targets, a.k.a. Retrace(lambda),
     and the corresponding advantages of a trajectory.
 
@@ -82,12 +83,14 @@ def retrace(
         The maximum importance sampling weight for trace computation (`c_bar` in the literature).
     max_is_weight_advantage:
         The maximum importance sampling weight for advantage computation.
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The (possibly distributional) Retrace targets,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape: ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True, None otherwise, shape: ``[B, T]``.
 
     Raises
     ------
@@ -126,4 +129,5 @@ def retrace(
         discount=discount,
         num_return_steps=rewards.shape[1],
         trace_decay=trace_decay,
+        return_advantage=return_advantage,
     )

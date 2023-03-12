@@ -14,9 +14,10 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train distributed data parallel Deep Deterministic Policy Gradient on LunarLanderContinuous-v2."""
+"""Train distributed data parallel Deep Deterministic Policy Gradient (DDPG) on LunarLanderContinuous-v2."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
+# pip install gymnasium[box2d]
 # actorch run DistributedDataParallelDDPG_LunarLanderContinuous-v2.py
 
 import gymnasium as gym

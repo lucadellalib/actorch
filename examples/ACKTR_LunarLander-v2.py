@@ -14,9 +14,10 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Actor-Critic Kronecker-Factored Trust Region on LunarLander-v2."""
+"""Train Actor-Critic Kronecker-Factored (ACKTR) Trust Region on LunarLander-v2."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
+# pip install gymnasium[box2d]
 # actorch run ACKTR_LunarLander-v2.py
 
 import gymnasium as gym

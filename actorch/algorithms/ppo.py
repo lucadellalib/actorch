@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Proximal Policy Optimization."""
+"""Proximal Policy Optimization (PPO)."""
 
 import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -31,6 +31,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from actorch.agents import Agent
 from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C, Loss, LRScheduler
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
+from actorch.algorithms.utils import normalize_
 from actorch.algorithms.value_estimation import lambda_return
 from actorch.envs import BatchedEnv
 from actorch.models import Model
@@ -46,7 +47,7 @@ __all__ = [
 
 
 class PPO(A2C):
-    """Proximal Policy Optimization.
+    """Proximal Policy Optimization (PPO).
 
     References
     ----------
@@ -234,6 +235,8 @@ class PPO(A2C):
         result["num_epochs"] = self.num_epochs()
         result["minibatch_size"] = self.minibatch_size()
         result["ratio_clip"] = self.ratio_clip()
+        result["entropy_coeff"] = result.pop("entropy_coeff", None)
+        result["max_grad_l2_norm"] = result.pop("max_grad_l2_norm", None)
         result.pop("num_return_steps", None)
         return result
 
@@ -301,22 +304,8 @@ class PPO(A2C):
                     else contextlib.suppress()
                 ):
                     if self.normalize_advantage:
-                        length_batch = mask_batch.sum(dim=1, keepdim=True)
-                        advantages_batch_mean = (
-                            advantages_batch.sum(dim=1, keepdim=True) / length_batch
-                        )
-                        advantages_batch -= advantages_batch_mean
-                        advantages_batch *= mask_batch
-                        advantages_batch_stddev = (
-                            (
-                                (advantages_batch**2).sum(dim=1, keepdim=True)
-                                / length_batch
-                            )
-                            .sqrt()
-                            .clamp(min=1e-6)
-                        )
-                        advantages_batch /= advantages_batch_stddev
-                        advantages_batch *= mask_batch
+                        normalize_(advantages_batch, dim=-1, mask=mask_batch)
+
                     state_values_batch, _ = self._value_network(
                         experiences_batch["observation"], mask=mask_batch
                     )
@@ -387,7 +376,7 @@ class PPO(A2C):
 
 
 class DistributedDataParallelPPO(DistributedDataParallelA2C):
-    """Distributed data parallel Proximal Policy Optimization.
+    """Distributed data parallel Proximal Policy Optimization (PPO).
 
     See Also
     --------

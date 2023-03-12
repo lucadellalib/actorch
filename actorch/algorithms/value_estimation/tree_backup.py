@@ -41,7 +41,8 @@ def tree_backup(
     mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
     trace_decay: "float" = 1.0,
-) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Union[Tensor, Distribution], Optional[Tensor]]":
     """Compute the (possibly distributional) tree-backup targets, a.k.a. TB(lambda),
     and the corresponding advantages of a trajectory.
 
@@ -74,12 +75,14 @@ def tree_backup(
         The discount factor (`gamma` in the literature).
     trace_decay:
         The trace-decay parameter (`lambda` in the literature).
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The (possibly distributional) tree-backup targets,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape: ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True, None otherwise, shape: ``[B, T]``.
 
     References
     ----------
@@ -105,4 +108,5 @@ def tree_backup(
         discount=discount,
         num_return_steps=rewards.shape[1],
         trace_decay=trace_decay,
+        return_advantage=return_advantage,
     )

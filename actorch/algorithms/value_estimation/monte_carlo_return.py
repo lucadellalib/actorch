@@ -33,7 +33,8 @@ def monte_carlo_return(
     rewards: "Tensor",
     mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
-) -> "Tuple[Tensor, Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Tensor, Optional[Tensor]]":
     """Compute the Monte Carlo returns and the corresponding advantages of
     a trajectory.
 
@@ -51,11 +52,14 @@ def monte_carlo_return(
         Default to ``torch.ones_like(rewards, dtype=torch.bool)``.
     discount:
         The discount factor (`gamma` in the literature).
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The Monte Carlo returns, shape: ``[B, T]``;
-        - the corresponding advantages, shape: ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True
+          None otherwise, shape: ``[B, T]``.
 
     References
     ----------
@@ -72,4 +76,5 @@ def monte_carlo_return(
         mask=mask,
         discount=discount,
         num_return_steps=rewards.shape[1],
+        return_advantage=return_advantage,
     )

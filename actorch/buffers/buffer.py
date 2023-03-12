@@ -35,6 +35,9 @@ __all__ = [
 class Buffer(ABC, CheckpointableMixin):
     """Replay buffer that stores and samples batched experience trajectories."""
 
+    is_prioritized = False
+    """Whether a priority is assigned to each trajectory."""
+
     _STATE_VARS = ["capacity", "spec", "_sampled_idx"]  # override
 
     def __init__(

@@ -67,9 +67,7 @@ class REINFORCE(Algorithm):
 
     """
 
-    _UPDATE_BUFFER_DATASET_SCHEDULES_AFTER_TRAIN_EPOCH = False  # override
-
-    _RESET_BUFFER = True
+    _OFF_POLICY = False  # override
 
     # override
     class Config(dict):
@@ -281,7 +279,7 @@ class REINFORCE(Algorithm):
     # override
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
-        if self._RESET_BUFFER:
+        if not self._OFF_POLICY:
             self._buffer.reset()
         self.discount.step()
         self.entropy_coeff.step()

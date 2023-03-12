@@ -14,13 +14,17 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Deep Deterministic Policy Gradient (DDPG) on LunarLanderContinuous-v2."""
+"""Train Distributional Deep Deterministic Policy Gradient (D3PG) on LunarLanderContinuous-v2
+assuming a finite value distribution with 51 atoms (see https://arxiv.org/abs/1804.08617).
+
+"""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
 # pip install gymnasium[box2d]
-# actorch run DDPG_LunarLanderContinuous-v2.py
+# actorch run D3PG-Finite_LunarLanderContinuous-v2.py
 
 import gymnasium as gym
+import torch
 from torch import nn
 from torch.optim import Adam
 
@@ -43,14 +47,14 @@ class LayerNormFCNet(FCNet):
 
 
 experiment_params = ExperimentParams(
-    run_or_experiment=DDPG,
-    stop={"timesteps_total": int(2e5)},
+    run_or_experiment=D3PG,
+    stop={"timesteps_total": int(4e5)},
     resources_per_trial={"cpu": 1, "gpu": 0},
     checkpoint_freq=10,
     checkpoint_at_end=True,
     log_to_file=True,
     export_formats=["checkpoint", "model"],
-    config=DDPG.Config(
+    config=D3PG.Config(
         train_env_builder=lambda **config: ParallelBatchedEnv(
             lambda **kwargs: gym.make("LunarLanderContinuous-v2", **kwargs),
             config,
@@ -72,8 +76,8 @@ experiment_params = ExperimentParams(
         policy_network_model_builder=LayerNormFCNet,
         policy_network_model_config={
             "torso_fc_configs": [
-                {"out_features": 64, "bias": True},
-                {"out_features": 64, "bias": True},
+                {"out_features": 400, "bias": True},
+                {"out_features": 300, "bias": True},
             ],
             "head_activation_builder": nn.Tanh,
         },
@@ -82,25 +86,40 @@ experiment_params = ExperimentParams(
         value_network_model_builder=LayerNormFCNet,
         value_network_model_config={
             "torso_fc_configs": [
-                {"out_features": 64, "bias": True},
-                {"out_features": 64, "bias": True},
+                {"out_features": 400, "bias": True},
+                {"out_features": 300, "bias": True},
             ],
+        },
+        value_network_distribution_builder=Finite,
+        value_network_distribution_parametrization={
+            "logits": (
+                {"logits": (51,)},
+                lambda x: x["logits"],
+            ),
+        },
+        value_network_distribution_config={
+            "atoms": torch.linspace(-10.0, 10.0, 51),
         },
         value_network_optimizer_builder=Adam,
         value_network_optimizer_config={"lr": 1e-3},
-        buffer_config={"capacity": int(1e5)},
+        buffer_config={
+            "capacity": int(1e5),
+            "prioritization": 1.0,
+            "bias_correction": 0.4,
+            "epsilon": 1e-5,
+        },
         discount=0.995,
-        num_return_steps=1,
+        num_return_steps=5,
         num_updates_per_iter=LambdaSchedule(
             lambda iter: (
                 200 if iter >= 10 else 0
             ),  # Fill buffer with some trajectories before training
         ),
         batch_size=128,
-        max_trajectory_length=1,
+        max_trajectory_length=10,
         sync_freq=1,
         polyak_weight=0.001,
-        max_grad_l2_norm=2.0,
+        max_grad_l2_norm=5.0,
         seed=0,
         enable_amp=False,
         enable_reproducibility=True,

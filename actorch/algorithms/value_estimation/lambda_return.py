@@ -37,7 +37,8 @@ def lambda_return(
     mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
     trace_decay: "float" = 1.0,
-) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Union[Tensor, Distribution], Optional[Tensor]]":
     """Compute the (possibly distributional) lambda returns, a.k.a. TD(lambda),
     and the corresponding advantages, a.k.a. GAE(lambda), of a trajectory.
 
@@ -63,12 +64,14 @@ def lambda_return(
         The discount factor (`gamma` in the literature).
     trace_decay:
         The trace-decay parameter (`lambda` in the literature).
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The (possibly distributional) lambda returns,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape: ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True, None otherwise, shape: ``[B, T]``.
 
     References
     ----------
@@ -94,4 +97,5 @@ def lambda_return(
         max_is_weight_trace=1.0,
         max_is_weight_delta=1.0,
         max_is_weight_advantage=1.0,
+        return_advantage=return_advantage,
     )

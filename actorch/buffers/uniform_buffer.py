@@ -55,6 +55,7 @@ class UniformBuffer(Buffer):
     # override
     @property
     def num_full_trajectories(self) -> "int":
+        # print(len(self._full_trajectory_start_idx))
         return len(self._full_trajectory_start_idx) if self._num_experiences > 0 else 0
 
     # override

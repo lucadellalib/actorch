@@ -20,7 +20,10 @@ from actorch.algorithms.a2c import *
 from actorch.algorithms.acktr import *
 from actorch.algorithms.algorithm import *
 from actorch.algorithms.awr import *
+from actorch.algorithms.d3pg import *
 from actorch.algorithms.ddpg import *
 from actorch.algorithms.ppo import *
 from actorch.algorithms.reinforce import *
+from actorch.algorithms.sac import *
 from actorch.algorithms.td3 import *
+from actorch.algorithms.trpo import *

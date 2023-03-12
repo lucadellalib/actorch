@@ -45,7 +45,7 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
     """Distributed Ray Tune trainable with configurable resource requirements.
 
     Derived classes must implement `step`, `save_checkpoint` and `load_checkpoint`
-    (see https://docs.ray.io/en/latest/tune/api_docs/trainable.html#tune-trainable-class-api).
+    (see https://docs.ray.io/en/releases-1.13.0/tune/api_docs/trainable.html#tune-trainable-class-api for Ray 1.13.0).
 
     """
 
@@ -67,7 +67,7 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
                 Default to ``[{"CPU": 1}]``.
             placement_strategy:
                 The placement strategy
-                (see https://docs.ray.io/en/latest/ray-core/placement-group.html).
+                (see https://docs.ray.io/en/releases-1.13.0/ray-core/placement-group.html for Ray 1.13.0).
 
             """
             super().__init__(
@@ -98,7 +98,7 @@ class DistributedTrainable(ABC, TuneDistributedTrainable):
             "        Default to ``[{}]``." + "\n"
             "    placement_strategy:" + "\n"
             "        The placement strategy." + "\n"
-            "        (see https://docs.ray.io/en/latest/ray-core/placement-group.html)."
+            f"        (see https://docs.ray.io/en/releases-{ray.__version__}/ray-core/placement-group.html)."
         )
 
     # override

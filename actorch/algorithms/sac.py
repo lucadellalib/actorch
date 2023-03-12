@@ -14,58 +14,57 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Deep Deterministic Policy Gradient (DDPG)."""
+"""Soft Actor-Critic (SAC)."""
 
 import contextlib
-import copy
-from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import torch
 from gymnasium import Env, spaces
 from numpy import ndarray
-from ray.tune import Trainable
 from torch import Tensor
 from torch.cuda.amp import autocast
-from torch.distributions import Distribution
+from torch.distributions import Distribution, Normal
+from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from actorch.agents import Agent, GaussianNoiseAgent
-from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C, Loss, LRScheduler
+from actorch.agents import Agent
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
-from actorch.algorithms.utils import freeze_params, prepare_model, sync_polyak_
+from actorch.algorithms.td3 import TD3, DistributedDataParallelTD3, Loss, LRScheduler
+from actorch.algorithms.utils import freeze_params, sync_polyak_
 from actorch.algorithms.value_estimation import n_step_return
 from actorch.buffers import Buffer
-from actorch.datasets import BufferDataset
-from actorch.distributions import Deterministic
 from actorch.envs import BatchedEnv
 from actorch.models import Model
-from actorch.networks import DistributionParametrization, Network, Processor
+from actorch.networks import DistributionParametrization, NormalizingFlow, Processor
 from actorch.samplers import Sampler
 from actorch.schedules import ConstantSchedule, Schedule
 from actorch.utils import singledispatchmethod
 
 
 __all__ = [
-    "DDPG",
-    "DistributedDataParallelDDPG",
+    "DistributedDataParallelSAC",
+    "SAC",
 ]
 
 
-class DDPG(A2C):
-    """Deep Deterministic Policy Gradient (DDPG).
+class SAC(TD3):
+    """Soft Actor-Critic (SAC).
 
     References
     ----------
-    .. [1] T. P. Lillicrap, J. J. Hunt, A. Pritzel, N. Heess, T. Erez,
-           Y. Tassa, D. Silver, and D. Wierstra.
-           "Continuous control with deep reinforcement learning".
-           In: ICLR. 2016.
-           URL: https://arxiv.org/abs/1509.02971
+    .. [1] T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine.
+           "Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor".
+           In: ICML. 2018, pp. 1861-1870.
+           URL: https://arxiv.org/abs/1801.01290
+    .. [2] T. Haarnoja, A. Zhou, K. Hartikainen, G. Tucker, S. Ha, J. Tan, V. Kumar,
+           H. Zhu, A. Gupta, P. Abbeel, and S. Levine.
+           "Soft Actor-Critic Algorithms and Applications".
+           In: arXiv. 2018.
+           URL: https://arxiv.org/abs/1812.05905
 
     """
-
-    _OFF_POLICY = True  # override
 
     # override
     class Config(dict):
@@ -93,6 +92,12 @@ class DDPG(A2C):
             policy_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             policy_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            policy_network_distribution_builders: "Tunable[RefOrFutureRef[Optional[Dict[str, Callable[..., Distribution]]]]]" = None,
+            policy_network_distribution_parametrizations: "Tunable[RefOrFutureRef[Optional[Dict[str, DistributionParametrization]]]]" = None,
+            policy_network_distribution_configs: "Tunable[RefOrFutureRef[Optional[Dict[str, Dict[str, Any]]]]]" = None,
+            policy_network_normalizing_flows: "Tunable[RefOrFutureRef[Optional[Dict[str, NormalizingFlow]]]]" = None,
+            policy_network_sample_fn: "Tunable[RefOrFutureRef[Optional[Callable[[Distribution], Tensor]]]]" = None,
+            policy_network_prediction_fn: "Tunable[RefOrFutureRef[Optional[Callable[[Tensor], Tensor]]]]" = None,
             policy_network_postprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -107,6 +112,10 @@ class DDPG(A2C):
             value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            temperature_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
+            temperature_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
+            temperature_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
+            temperature_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             buffer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Buffer]]]]" = None,
             buffer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             buffer_checkpoint: "Tunable[RefOrFutureRef[bool]]" = False,
@@ -121,6 +130,7 @@ class DDPG(A2C):
             ),
             sync_freq: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 1,
             polyak_weight: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.001,
+            temperature: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.1,
             max_grad_l2_norm: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = float(  # noqa: B008
                 "inf"
             ),
@@ -158,6 +168,12 @@ class DDPG(A2C):
                 policy_network_preprocessors=policy_network_preprocessors,
                 policy_network_model_builder=policy_network_model_builder,
                 policy_network_model_config=policy_network_model_config,
+                policy_network_distribution_builders=policy_network_distribution_builders,
+                policy_network_distribution_parametrizations=policy_network_distribution_parametrizations,
+                policy_network_distribution_configs=policy_network_distribution_configs,
+                policy_network_normalizing_flows=policy_network_normalizing_flows,
+                policy_network_sample_fn=policy_network_sample_fn,
+                policy_network_prediction_fn=policy_network_prediction_fn,
                 policy_network_postprocessors=policy_network_postprocessors,
                 policy_network_optimizer_builder=policy_network_optimizer_builder,
                 policy_network_optimizer_config=policy_network_optimizer_config,
@@ -172,6 +188,10 @@ class DDPG(A2C):
                 value_network_optimizer_config=value_network_optimizer_config,
                 value_network_optimizer_lr_scheduler_builder=value_network_optimizer_lr_scheduler_builder,
                 value_network_optimizer_lr_scheduler_config=value_network_optimizer_lr_scheduler_config,
+                temperature_optimizer_builder=temperature_optimizer_builder,
+                temperature_optimizer_config=temperature_optimizer_config,
+                temperature_optimizer_lr_scheduler_builder=temperature_optimizer_lr_scheduler_builder,
+                temperature_optimizer_lr_scheduler_config=temperature_optimizer_lr_scheduler_config,
                 buffer_builder=buffer_builder,
                 buffer_config=buffer_config,
                 buffer_checkpoint=buffer_checkpoint,
@@ -184,6 +204,7 @@ class DDPG(A2C):
                 max_trajectory_length=max_trajectory_length,
                 sync_freq=sync_freq,
                 polyak_weight=polyak_weight,
+                temperature=temperature,
                 max_grad_l2_norm=max_grad_l2_norm,
                 cumreward_window_size=cumreward_window_size,
                 seed=seed,
@@ -198,130 +219,87 @@ class DDPG(A2C):
 
     # override
     def setup(self, config: "Dict[str, Any]") -> "None":
-        self.config = DDPG.Config(**self.config)
+        self.config = SAC.Config(**self.config)
         self.config["_accept_kwargs"] = True
         super().setup(config)
-        self._target_policy_network = self._build_target_policy_network()
-        self._target_value_network = self._build_target_value_network()
-        if not isinstance(self.num_updates_per_iter, Schedule):
-            self.num_updates_per_iter = ConstantSchedule(self.num_updates_per_iter)
-        if not isinstance(self.batch_size, Schedule):
-            self.batch_size = ConstantSchedule(self.batch_size)
-        if not isinstance(self.max_trajectory_length, Schedule):
-            self.max_trajectory_length = ConstantSchedule(self.max_trajectory_length)
-        if not isinstance(self.sync_freq, Schedule):
-            self.sync_freq = ConstantSchedule(self.sync_freq)
-        if not isinstance(self.polyak_weight, Schedule):
-            self.polyak_weight = ConstantSchedule(self.polyak_weight)
+        if self.temperature_optimizer_builder is not None:
+            self._log_temperature = torch.zeros(
+                1, device=self._device, requires_grad=True
+            )
+            self._target_entropy = torch.as_tensor(
+                self._train_env.single_action_space.sample()
+            ).numel()
+            self._temperature_optimizer = self._build_temperature_optimizer()
+            self._temperature_optimizer_lr_scheduler = (
+                self._build_temperature_optimizer_lr_scheduler()
+            )
+            self.temperature = lambda *args: self._log_temperature.exp().item()
+        elif not isinstance(self.temperature, Schedule):
+            self.temperature = ConstantSchedule(self.temperature)
 
     # override
     @property
     def _checkpoint(self) -> "Dict[str, Any]":
         checkpoint = super()._checkpoint
-        checkpoint["target_policy_network"] = self._target_policy_network.state_dict()
-        checkpoint["target_value_network"] = self._target_value_network.state_dict()
-        checkpoint["sync_freq"] = self.sync_freq.state_dict()
-        checkpoint["polyak_weight"] = self.polyak_weight.state_dict()
+        if self.temperature_optimizer_builder is not None:
+            checkpoint["log_temperature"] = self._log_temperature
+            checkpoint[
+                "temperature_optimizer"
+            ] = self._temperature_optimizer.state_dict()
+        if self._temperature_optimizer_lr_scheduler is not None:
+            checkpoint[
+                "temperature_optimizer_lr_scheduler"
+            ] = self._temperature_optimizer_lr_scheduler.state_dict()
+        checkpoint["temperature"] = self.temperature.state_dict()
         return checkpoint
 
     # override
     @_checkpoint.setter
     def _checkpoint(self, value: "Dict[str, Any]") -> "None":
         super()._checkpoint = value
-        self._target_policy_network.load_state_dict(value["target_policy_network"])
-        self._target_value_network.load_state_dict(value["target_value_network"])
-        self.sync_freq.load_state_dict(value["sync_freq"])
-        self.polyak_weight.load_state_dict(value["polyak_weight"])
+        if "log_temperature" in value:
+            self._log_temperature = value["log_temperature"]
+        if "temperature_optimizer" in value:
+            self._temperature_optimizer.load_state_dict(value["temperature_optimizer"])
+        if "temperature_optimizer_lr_scheduler" in value:
+            self._temperature_optimizer_lr_scheduler.load_state_dict(
+                value["temperature_optimizer_lr_scheduler"]
+            )
+        self.temperature.load_state_dict(value["temperature"])
 
-    # override
-    def _build_train_agent(self) -> "Agent":
-        if self.train_agent_builder is None:
-            self.train_agent_builder = GaussianNoiseAgent
-            if self.train_agent_config is None:
-                self.train_agent_config = {
-                    "clip_action": True,
-                    "device": "cpu",
-                    "num_random_timesteps": 0,
-                    "mean": 0.0,
-                    "stddev": 0.1,
-                }
-        return super()._build_train_agent()
-
-    # override
-    def _build_buffer(self) -> "Buffer":
-        if self.buffer_config is None:
-            self.buffer_config = {"capacity": int(1e5)}
-        return super()._build_buffer()
-
-    # override
-    def _build_buffer_dataset(self) -> "BufferDataset":
-        if self.buffer_dataset_config is None:
-            self.buffer_dataset_config = {
-                "batch_size": self.batch_size,
-                "max_trajectory_length": self.max_trajectory_length,
-                "num_iters": self.num_updates_per_iter,
-            }
-        return super()._build_buffer_dataset()
-
-    # override
-    def _build_value_network(self) -> "Network":
-        if self.value_network_preprocessors is None:
-            self.value_network_preprocessors: "Dict[str, Processor]" = {}
-        unnested_single_observation_space = {
-            f"observation{k}": v
-            for k, v in self._train_env.single_observation_space.unnested.items()
-        }
-        unnested_single_action_space = {
-            f"action{k}": v
-            for k, v in self._train_env.single_action_space.unnested.items()
-        }
-        unexpected_keys = (
-            self.value_network_preprocessors.keys()
-            - unnested_single_observation_space.keys()
-            - unnested_single_action_space.keys()
+    def _build_temperature_optimizer(self) -> "Optimizer":
+        if self.temperature_optimizer_config is None:
+            self.temperature_optimizer_config: "Dict[str, Any]" = {}
+        return self.temperature_optimizer_builder(
+            [self._log_temperature],
+            **self.temperature_optimizer_config,
         )
-        if not unexpected_keys:
-            # Order matters
-            self.value_network_preprocessors = {
-                key: self.value_network_preprocessors.get(
-                    key,
-                    self._get_default_value_network_preprocessor(space),
-                )
-                for key, space in (
-                    *unnested_single_observation_space.items(),
-                    *unnested_single_action_space.items(),
-                )
-            }
-        return super()._build_value_network()
 
-    def _build_target_policy_network(self) -> "Network":
-        target_policy_network = copy.deepcopy(self._policy_network)
-        target_policy_network.requires_grad_(False)
-        return target_policy_network.eval().to(self._device, non_blocking=True)
-
-    def _build_target_value_network(self) -> "Network":
-        target_value_network = copy.deepcopy(self._value_network)
-        target_value_network.requires_grad_(False)
-        return target_value_network.eval().to(self._device, non_blocking=True)
+    def _build_temperature_optimizer_lr_scheduler(
+        self,
+    ) -> "Optional[LRScheduler]":
+        if self.temperature_optimizer_lr_scheduler_builder is None:
+            return
+        if self.temperature_optimizer_lr_scheduler_config is None:
+            self.temperature_optimizer_lr_scheduler_config: "Dict[str, Any]" = {}
+        return self.temperature_optimizer_lr_scheduler_builder(
+            self._temperature_optimizer,
+            **self.temperature_optimizer_lr_scheduler_config,
+        )
 
     # override
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
-        self.sync_freq.step()
-        self.polyak_weight.step()
-        result["num_updates_per_iter"] = self.num_updates_per_iter()
-        result["batch_size"] = self.batch_size()
-        result["max_trajectory_length"] = (
-            self.max_trajectory_length()
-            if self.max_trajectory_length() != float("inf")
-            else "inf"
-        )
-        result["sync_freq"] = self.sync_freq()
-        result["polyak_weight"] = self.polyak_weight()
+        if self.temperature_optimizer_builder is None:
+            result["temperature"] = self.temperature()
         result["max_grad_l2_norm"] = result.pop("max_grad_l2_norm", None)
-        result["buffer_num_experiences"] = self._buffer.num_experiences
-        result["buffer_num_full_trajectories"] = self._buffer.num_full_trajectories
-        result.pop("entropy_coeff", None)
+        result["buffer_num_experiences"] = result.pop("buffer_num_experiences", None)
+        result["buffer_num_full_trajectories"] = result.pop(
+            "buffer_num_full_trajectories", None
+        )
+        result.pop("delay", None)
+        result.pop("noise_stddev", None)
+        result.pop("noise_clip", None)
         return result
 
     # override
@@ -340,6 +318,12 @@ class DDPG(A2C):
             )
         sync_freq = int(sync_freq)
 
+        temperature = self.temperature()
+        if temperature <= 0.0:
+            raise ValueError(
+                f"`temperature` ({temperature}) must be in the interval (0, inf)"
+            )
+
         result = {}
 
         with (
@@ -347,9 +331,10 @@ class DDPG(A2C):
             if self.enable_amp["enabled"]
             else contextlib.suppress()
         ):
-            target_actions, _ = self._target_policy_network(
-                experiences["observation"], mask=mask
-            )
+            self._policy_network(experiences["observation"], mask=mask)
+            policy = self._policy_network.distribution
+            target_actions = policy.rsample()
+            target_log_probs = policy.log_prob(target_actions)
             observations_target_actions = torch.cat(
                 [
                     x[..., None] if x.shape == mask.shape else x
@@ -357,11 +342,21 @@ class DDPG(A2C):
                 ],
                 dim=-1,
             )
-            target_action_values, _ = self._target_value_network(
-                observations_target_actions, mask=mask
-            )
+            with torch.no_grad():
+                target_action_values, _ = self._target_value_network(
+                    observations_target_actions, mask=mask
+                )
+                target_twin_action_values, _ = self._target_twin_value_network(
+                    observations_target_actions, mask=mask
+                )
+            target_action_values = target_action_values.min(target_twin_action_values)
+            with torch.no_grad():
+                target_action_values -= temperature * target_log_probs
+
             # Discard next observation
             experiences["observation"] = experiences["observation"][:, :-1, ...]
+            observations_target_actions = observations_target_actions[:, :-1, ...]
+            target_log_probs = target_log_probs[:, :-1, ...]
             mask = mask[:, 1:]
             targets, _ = n_step_return(
                 target_action_values,
@@ -382,6 +377,9 @@ class DDPG(A2C):
                 dim=-1,
             )
             action_values, _ = self._value_network(observations_actions, mask=mask)
+            twin_action_values, _ = self._twin_value_network(
+                observations_actions, mask=mask
+            )
 
         result["value_network"], priority = self._train_on_batch_value_network(
             action_values,
@@ -389,21 +387,43 @@ class DDPG(A2C):
             is_weight,
             mask,
         )
-        result["policy_network"] = self._train_on_batch_policy_network(
-            experiences,
+
+        (
+            result["twin_value_network"],
+            twin_priority,
+        ) = self._train_on_batch_twin_value_network(
+            twin_action_values,
+            targets,
+            is_weight,
             mask,
         )
+
+        if priority is not None:
+            priority += twin_priority
+            priority /= 2.0
+
+        result["policy_network"] = self._train_on_batch_policy_network(
+            observations_target_actions,
+            target_log_probs,
+            mask,
+        )
+
+        if self.temperature_optimizer_builder is not None:
+            result["temperature"] = self._train_on_batch_temperature(
+                target_log_probs,
+                mask,
+            )
 
         # Synchronize
         if idx % sync_freq == 0:
             sync_polyak_(
-                self._policy_network,
-                self._target_policy_network,
+                self._value_network,
+                self._target_value_network,
                 self.polyak_weight(),
             )
             sync_polyak_(
-                self._value_network,
-                self._target_value_network,
+                self._twin_value_network,
+                self._target_twin_value_network,
                 self.polyak_weight(),
             )
 
@@ -413,7 +433,8 @@ class DDPG(A2C):
     # override
     def _train_on_batch_policy_network(
         self,
-        experiences: "Dict[str, Tensor]",
+        observations_actions: "Tensor",
+        log_probs: "Tensor",
         mask: "Tensor",
     ) -> "Dict[str, Any]":
         with (
@@ -421,41 +442,68 @@ class DDPG(A2C):
             if self.enable_amp["enabled"]
             else contextlib.suppress()
         ):
-            actions, _ = self._policy_network(experiences["observation"], mask=mask)
-            observations_actions = torch.cat(
-                [
-                    x[..., None] if x.shape == mask.shape else x
-                    for x in [experiences["observation"], actions]
-                ],
-                dim=-1,
-            )
-            with freeze_params(self._value_network):
+            with freeze_params(self._value_network, self._twin_value_network):
                 action_values, _ = self._value_network(observations_actions, mask=mask)
+                twin_action_values, _ = self._twin_value_network(
+                    observations_actions, mask=mask
+                )
+            action_values = action_values.min(twin_action_values)
+            log_prob = log_probs[mask]
             action_value = action_values[mask]
-            loss = -action_value.mean()
+            loss = self.temperature() * log_prob
+            loss -= action_value
+            loss = loss.mean()
         optimize_result = self._optimize_policy_network(loss)
-        result = {"loss": loss.item()}
+        result = {
+            "log_prob": log_prob.mean().item(),
+            "action_value": action_value.mean().item(),
+            "loss": loss.item(),
+        }
         result.update(optimize_result)
         return result
 
-    # override
-    def _train_on_batch_value_network(
+    def _train_on_batch_temperature(
         self,
-        action_values: "Tensor",
-        targets: "Tensor",
-        is_weight: "Tensor",
+        log_probs: "Tensor",
         mask: "Tensor",
-    ) -> "Tuple[Dict[str, Any], Optional[ndarray]]":
-        result, priority = super()._train_on_batch_value_network(
-            action_values,
-            targets,
-            is_weight,
-            mask,
-        )
+    ) -> "Dict[str, Any]":
+        with (
+            autocast(**self.enable_amp)
+            if self.enable_amp["enabled"]
+            else contextlib.suppress()
+        ):
+            with torch.no_grad():
+                log_prob = log_probs[mask]
+            loss = log_prob + self._target_entropy
+            loss *= -self._log_temperature
+            loss = loss.mean()
+        optimize_result = self._optimize_temperature(loss)
         result = {
-            k if k != "state_value" else "action_value": v for k, v in result.items()
+            "temperature": self.temperature(),
+            "log_prob": log_prob.mean().item(),
+            "loss": loss.item(),
         }
-        return result, priority
+        result.update(optimize_result)
+        return result
+
+    def _optimize_temperature(self, loss: "Tensor") -> "Dict[str, Any]":
+        max_grad_l2_norm = self.max_grad_l2_norm()
+        if max_grad_l2_norm <= 0.0:
+            raise ValueError(
+                f"`max_grad_l2_norm` ({max_grad_l2_norm}) must be in the interval (0, inf]"
+            )
+        self._temperature_optimizer.zero_grad(set_to_none=True)
+        self._grad_scaler.scale(loss).backward()
+        self._grad_scaler.unscale_(self._temperature_optimizer)
+        grad_l2_norm = clip_grad_norm_(self._log_temperature, max_grad_l2_norm)
+        self._grad_scaler.step(self._temperature_optimizer)
+        result = {
+            "lr": self._temperature_optimizer.param_groups[0]["lr"],
+            "grad_l2_norm": min(grad_l2_norm.item(), max_grad_l2_norm),
+        }
+        if self._temperature_optimizer_lr_scheduler is not None:
+            self._temperature_optimizer_lr_scheduler.step()
+        return result
 
     @singledispatchmethod(use_weakrefs=False)
     def _get_default_policy_network_distribution_builder(
@@ -464,7 +512,10 @@ class DDPG(A2C):
     ) -> "Callable[..., Distribution]":
         raise NotImplementedError(
             f"Unsupported space type: "
-            f"`{type(space).__module__}.{type(space).__name__}`"
+            f"`{type(space).__module__}.{type(space).__name__}`. "
+            f"Register a custom space type through decorator "
+            f"`{type(self).__module__}.{type(self).__name__}."
+            f"_get_default_policy_network_distribution_builder.register`"
         )
 
     @singledispatchmethod(use_weakrefs=False)
@@ -474,7 +525,10 @@ class DDPG(A2C):
     ) -> "Callable[..., DistributionParametrization]":
         raise NotImplementedError(
             f"Unsupported space type: "
-            f"`{type(space).__module__}.{type(space).__name__}`"
+            f"`{type(space).__module__}.{type(space).__name__}`. "
+            f"Register a custom space type through decorator "
+            f"`{type(self).__module__}.{type(self).__name__}."
+            f"_get_default_policy_network_distribution_parametrization.register`"
         )
 
     @singledispatchmethod(use_weakrefs=False)
@@ -484,166 +538,66 @@ class DDPG(A2C):
     ) -> "Dict[str, Any]":
         raise NotImplementedError(
             f"Unsupported space type: "
-            f"`{type(space).__module__}.{type(space).__name__}`"
+            f"`{type(space).__module__}.{type(space).__name__}`. "
+            f"Register a custom space type through decorator "
+            f"`{type(self).__module__}.{type(self).__name__}."
+            f"_get_default_policy_network_distribution_config.register`"
         )
 
 
-class DistributedDataParallelDDPG(DistributedDataParallelA2C):
-    """Distributed data parallel Deep Deterministic Policy Gradient (DDPG).
+class DistributedDataParallelSAC(DistributedDataParallelTD3):
+    """Distributed data parallel Soft Actor-Critic (SAC).
 
     See Also
     --------
-    actorch.algorithms.ddpg.DDPG
+    actorch.algorithms.sac.SAC
 
     """
 
-    _ALGORITHM_CLS = DDPG  # override
-
-    # override
-    @classmethod
-    def get_worker_cls(cls) -> "Type[Trainable]":
-        class Worker(super().get_worker_cls()):
-            # override
-            def setup(self, config: "Dict[str, Any]") -> "None":
-                super().setup(config)
-
-                # Target policy network
-                self._target_policy_network_state_dict_keys = list(
-                    self._target_policy_network.state_dict().keys()
-                )
-                self._target_policy_network_wrapped_model = (
-                    self._target_policy_network.wrapped_model
-                )
-                self._target_policy_network_normalizing_flows = (
-                    self._target_policy_network.normalizing_flows
-                )
-                prepare_model_kwargs = {}
-                if not any(
-                    x.requires_grad
-                    for x in self._target_policy_network_wrapped_model.parameters()
-                ):
-                    prepare_model_kwargs = {"ddp_cls": None}
-                self._target_policy_network.wrapped_model = prepare_model(
-                    self._target_policy_network_wrapped_model,
-                    **prepare_model_kwargs,
-                )
-                for k, v in self._target_policy_network_normalizing_flows.items():
-                    model = v.model
-                    prepare_model_kwargs = {}
-                    if not any(x.requires_grad for x in model.parameters()):
-                        prepare_model_kwargs = {"ddp_cls": None}
-                    self._target_policy_network.normalizing_flows[
-                        k
-                    ].model = prepare_model(
-                        model,
-                        **prepare_model_kwargs,
-                    )
-                self._prepared_target_policy_network_state_dict_keys = list(
-                    self._target_policy_network.state_dict().keys()
-                )
-
-                # Target value network
-                self._target_value_network_state_dict_keys = list(
-                    self._target_value_network.state_dict().keys()
-                )
-                self._target_value_network_wrapped_model = (
-                    self._target_value_network.wrapped_model
-                )
-                self._target_value_network_normalizing_flows = (
-                    self._target_value_network.normalizing_flows
-                )
-                prepare_model_kwargs = {}
-                if not any(
-                    x.requires_grad
-                    for x in self._target_value_network_wrapped_model.parameters()
-                ):
-                    prepare_model_kwargs = {"ddp_cls": None}
-                self._target_value_network.wrapped_model = prepare_model(
-                    self._target_value_network_wrapped_model,
-                    **prepare_model_kwargs,
-                )
-                for k, v in self._target_value_network_normalizing_flows.items():
-                    model = v.model
-                    prepare_model_kwargs = {}
-                    if not any(x.requires_grad for x in model.parameters()):
-                        prepare_model_kwargs = {"ddp_cls": None}
-                    self._target_value_network.normalizing_flows[
-                        k
-                    ].model = prepare_model(
-                        model,
-                        **prepare_model_kwargs,
-                    )
-                self._prepared_target_value_network_state_dict_keys = list(
-                    self._target_value_network.state_dict().keys()
-                )
-
-            # override
-            @property
-            def _checkpoint(self) -> "Dict[str, Any]":
-                checkpoint = super()._checkpoint
-                checkpoint["target_policy_network"] = {
-                    self._target_policy_network_state_dict_keys[i]: v
-                    for i, v in enumerate(checkpoint["target_policy_network"].values())
-                }
-                checkpoint["target_value_network"] = {
-                    self._target_value_network_state_dict_keys[i]: v
-                    for i, v in enumerate(checkpoint["target_value_network"].values())
-                }
-                return checkpoint
-
-            # override
-            @_checkpoint.setter
-            def _checkpoint(self, value: "Dict[str, Any]") -> "None":
-                value["target_policy_network"] = {
-                    self._prepared_target_policy_network_state_dict_keys[i]: v
-                    for i, v in enumerate(value["target_policy_network"].values())
-                }
-                value["target_value_network"] = {
-                    self._prepared_target_value_network_state_dict_keys[i]: v
-                    for i, v in enumerate(value["target_value_network"].values())
-                }
-                super()._checkpoint = value
-
-        return Worker
+    _ALGORITHM_CLS = SAC  # override
 
 
 #####################################################################################################
-# DDPG._get_default_policy_network_distribution_builder implementation
+# SAC._get_default_policy_network_distribution_builder implementation
 #####################################################################################################
 
 
-@DDPG._get_default_policy_network_distribution_builder.register(spaces.Box)
+@SAC._get_default_policy_network_distribution_builder.register(spaces.Box)
 def _get_default_policy_network_distribution_builder_box(
     self,
     space: "spaces.Box",
-) -> "Callable[..., Deterministic]":
-    return Deterministic
+) -> "Callable[..., Normal]":
+    return Normal
 
 
 #####################################################################################################
-# DDPG._get_default_policy_network_distribution_parametrization implementation
+# SAC._get_default_policy_network_distribution_parametrization implementation
 #####################################################################################################
 
 
-@DDPG._get_default_policy_network_distribution_parametrization.register(spaces.Box)
+@SAC._get_default_policy_network_distribution_parametrization.register(spaces.Box)
 def _get_default_policy_network_distribution_parametrization_box(
     self,
     space: "spaces.Box",
 ) -> "DistributionParametrization":
     return {
-        "value": (
-            {"value": space.shape},
-            lambda x: x["value"],
+        "loc": (
+            {"loc": space.shape},
+            lambda x: x["loc"],
+        ),
+        "scale": (
+            {"log_scale": space.shape},
+            lambda x: x["log_scale"].exp(),
         ),
     }
 
 
 #####################################################################################################
-# DDPG._get_default_policy_network_distribution_config implementation
+# SAC._get_default_policy_network_distribution_config implementation
 #####################################################################################################
 
 
-@DDPG._get_default_policy_network_distribution_config.register(spaces.Box)
+@SAC._get_default_policy_network_distribution_config.register(spaces.Box)
 def _get_default_policy_network_distribution_config_box(
     self,
     space: "spaces.Box",

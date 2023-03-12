@@ -44,6 +44,8 @@ class ProportionalBuffer(UniformBuffer):
 
     """
 
+    is_prioritized = True  # override
+
     _STATE_VARS = UniformBuffer._STATE_VARS + [
         "prioritization",
         "bias_correction",

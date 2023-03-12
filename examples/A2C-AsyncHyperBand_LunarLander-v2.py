@@ -14,12 +14,13 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Advantage Actor-Critic on LunarLander-v2. Tune the value network learning
+"""Train Advantage Actor-Critic (A2C) on LunarLander-v2. Tune the value network learning
 rate using the asynchronous version of HyperBand (https://arxiv.org/abs/1810.05934).
 
 """
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
+# pip install gymnasium[box2d]
 # actorch run A2C-AsyncHyperBand_LunarLander-v2.py
 
 import gymnasium as gym

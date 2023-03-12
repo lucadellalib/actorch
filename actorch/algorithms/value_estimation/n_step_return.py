@@ -37,7 +37,8 @@ def n_step_return(
     mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
     num_return_steps: "int" = 1,
-) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Union[Tensor, Distribution], Optional[Tensor]]":
     """Compute the (possibly distributional) n-step returns, a.k.a. TD(n),
     and the corresponding advantages of a trajectory.
 
@@ -63,12 +64,14 @@ def n_step_return(
         The discount factor (`gamma` in the literature).
     num_return_steps:
         The number of return steps (`n` in the literature).
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The (possibly distributional) n-step returns,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape: ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True, None otherwise, shape: ``[B, T]``.
 
     References
     ----------
@@ -90,4 +93,5 @@ def n_step_return(
         max_is_weight_trace=1.0,
         max_is_weight_delta=1.0,
         max_is_weight_advantage=1.0,
+        return_advantage=return_advantage,
     )

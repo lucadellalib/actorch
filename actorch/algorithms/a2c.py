@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Advantage Actor-Critic."""
+"""Advantage Actor-Critic (A2C)."""
 
 import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
@@ -38,7 +38,7 @@ from actorch.algorithms.reinforce import (
     DistributedDataParallelREINFORCE,
     LRScheduler,
 )
-from actorch.algorithms.utils import prepare_model
+from actorch.algorithms.utils import normalize_, prepare_model
 from actorch.algorithms.value_estimation import n_step_return
 from actorch.distributions import Deterministic
 from actorch.envs import BatchedEnv
@@ -65,7 +65,7 @@ Loss = loss._Loss
 
 
 class A2C(REINFORCE):
-    """Advantage Actor-Critic.
+    """Advantage Actor-Critic (A2C).
 
     References
     ----------
@@ -208,12 +208,8 @@ class A2C(REINFORCE):
         self.config = A2C.Config(**self.config)
         self.config["_accept_kwargs"] = True
         super().setup(config)
-        self._value_network = (
-            self._build_value_network().train().to(self._device, non_blocking=True)
-        )
-        self._value_network_loss = (
-            self._build_value_network_loss().train().to(self._device, non_blocking=True)
-        )
+        self._value_network = self._build_value_network()
+        self._value_network_loss = self._build_value_network_loss()
         self._value_network_optimizer = self._build_value_network_optimizer()
         self._value_network_optimizer_lr_scheduler = (
             self._build_value_network_optimizer_lr_scheduler()
@@ -324,16 +320,20 @@ class A2C(REINFORCE):
             self.value_network_normalizing_flows,
         )
         self._log_graph(value_network.wrapped_model.model, "value_network_model")
-        return value_network
+        return value_network.train().to(self._device, non_blocking=True)
 
     def _build_value_network_loss(self) -> "Loss":
         if self.value_network_loss_builder is None:
             self.value_network_loss_builder = torch.nn.MSELoss
         if self.value_network_loss_config is None:
             self.value_network_loss_config: "Dict[str, Any]" = {}
-        return self.value_network_loss_builder(
-            reduction="none",
-            **self.value_network_loss_config,
+        return (
+            self.value_network_loss_builder(
+                reduction="none",
+                **self.value_network_loss_config,
+            )
+            .train()
+            .to(self._device, non_blocking=True)
         )
 
     def _build_value_network_optimizer(self) -> "Optimizer":
@@ -374,6 +374,8 @@ class A2C(REINFORCE):
         result = super()._train_step()
         self.num_return_steps.step()
         result["num_return_steps"] = self.num_return_steps()
+        result["entropy_coeff"] = result.pop("entropy_coeff", None)
+        result["max_grad_l2_norm"] = result.pop("max_grad_l2_norm", None)
         return result
 
     # override
@@ -405,17 +407,7 @@ class A2C(REINFORCE):
                     self.num_return_steps(),
                 )
             if self.normalize_advantage:
-                length = mask.sum(dim=1, keepdim=True)
-                advantages_mean = advantages.sum(dim=1, keepdim=True) / length
-                advantages -= advantages_mean
-                advantages *= mask
-                advantages_stddev = (
-                    ((advantages**2).sum(dim=1, keepdim=True) / length)
-                    .sqrt()
-                    .clamp(min=1e-6)
-                )
-                advantages /= advantages_stddev
-                advantages *= mask
+                normalize_(advantages, dim=-1, mask=mask)
 
         # Discard next state value
         state_values = state_values[:, :-1]
@@ -449,10 +441,12 @@ class A2C(REINFORCE):
             state_value = state_values[mask]
             target = targets[mask]
             loss = self._value_network_loss(state_value, target)
-            loss *= is_weight[:, None].expand_as(mask)[mask]
+            priority = None
+            if self._buffer.is_prioritized:
+                loss *= is_weight[:, None].expand_as(mask)[mask]
+                priority = loss.detach().abs().to("cpu").numpy()
             loss = loss.mean()
         optimize_result = self._optimize_value_network(loss)
-        priority = None
         result = {
             "state_value": state_value.mean().item(),
             "target": target.mean().item(),
@@ -490,7 +484,7 @@ class A2C(REINFORCE):
 
 
 class DistributedDataParallelA2C(DistributedDataParallelREINFORCE):
-    """Distributed data parallel Advantage Actor-Critic.
+    """Distributed data parallel Advantage Actor-Critic (A2C).
 
     See Also
     --------

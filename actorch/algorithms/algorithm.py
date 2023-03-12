@@ -51,7 +51,6 @@ from ray.tune.sample import Domain
 from ray.tune.syncer import NodeSyncer
 from ray.tune.trial import ExportFormat
 from torch import Tensor
-from torch.cuda.amp import autocast
 from torch.distributions import Bernoulli, Categorical, Distribution, Normal
 from torch.profiler import profile, record_function, tensorboard_trace_handler
 from torch.utils.data import DataLoader
@@ -113,7 +112,7 @@ class Algorithm(ABC, Trainable):
 
     _EXPORT_FORMATS = [ExportFormat.CHECKPOINT, ExportFormat.MODEL]
 
-    _UPDATE_BUFFER_DATASET_SCHEDULES_AFTER_TRAIN_EPOCH = True
+    _OFF_POLICY = True
 
     class Config(dict):
         """Keyword arguments expected in the configuration received by `setup`."""
@@ -692,12 +691,7 @@ class Algorithm(ABC, Trainable):
         if self.train_env_config is None:
             self.train_env_config = {}
 
-        try:
-            train_env = self.train_env_builder(
-                **self.train_env_config,
-            )
-        except TypeError:
-            train_env = self.train_env_builder(**self.train_env_config)
+        train_env = self.train_env_builder(**self.train_env_config)
         if not isinstance(train_env, BatchedEnv):
             train_env.close()
             train_env = SerialBatchedEnv(self.train_env_builder, self.train_env_config)
@@ -866,7 +860,7 @@ class Algorithm(ABC, Trainable):
             self.policy_network_postprocessors,
         )
         self._log_graph(policy_network.wrapped_model.model, "policy_network_model")
-        return policy_network
+        return policy_network.train().to(self._device, non_blocking=True)
 
     def _build_train_agent(self) -> "Agent":
         if self.train_agent_builder is None:
@@ -989,14 +983,18 @@ class Algorithm(ABC, Trainable):
         if self.dataloader_builder is None:
             self.dataloader_builder = DataLoader
             if self.dataloader_config is None:
-                fork = torch.multiprocessing.get_start_method() == "fork"
+                use_mp = (
+                    self._OFF_POLICY
+                    and not self._buffer.is_prioritized
+                    and torch.multiprocessing.get_start_method() == "fork"
+                )
                 self.dataloader_config = {
-                    "num_workers": 1 if fork else 0,
+                    "num_workers": 1 if use_mp else 0,
                     "pin_memory": True,
                     "timeout": 0,
                     "worker_init_fn": None,
                     "generator": None,
-                    "prefetch_factor": 1 if fork else 2,
+                    "prefetch_factor": 1 if use_mp else 2,
                     "pin_memory_device": "",
                 }
         if self.dataloader_config is None:
@@ -1037,20 +1035,15 @@ class Algorithm(ABC, Trainable):
         if self.train_num_episodes_per_iter:
             train_num_episodes_per_iter = self.train_num_episodes_per_iter()
             self.train_num_episodes_per_iter.step()
-        with (
-            autocast(**self.enable_amp)
-            if self.enable_amp["enabled"]
-            else contextlib.suppress()
+        for experience, done in self._train_sampler.sample(
+            train_num_timesteps_per_iter,
+            train_num_episodes_per_iter,
         ):
-            for experience, done in self._train_sampler.sample(
-                train_num_timesteps_per_iter,
-                train_num_episodes_per_iter,
-            ):
-                self._buffer.add(experience, done)
+            self._buffer.add(experience, done)
         result = self._train_sampler.stats
         self._cumrewards += result["episode_cumreward"]
 
-        if not self._UPDATE_BUFFER_DATASET_SCHEDULES_AFTER_TRAIN_EPOCH:
+        if not self._OFF_POLICY:
             for schedule in self._buffer_dataset.schedules.values():
                 schedule.step()
         train_epoch_result = self._train_epoch()
@@ -1060,7 +1053,7 @@ class Algorithm(ABC, Trainable):
             schedule.step()
         for schedule in self._buffer.schedules.values():
             schedule.step()
-        if self._UPDATE_BUFFER_DATASET_SCHEDULES_AFTER_TRAIN_EPOCH:
+        if self._OFF_POLICY:
             for schedule in self._buffer_dataset.schedules.values():
                 schedule.step()
         return result
@@ -1113,16 +1106,11 @@ class Algorithm(ABC, Trainable):
             eval_num_episodes_per_iter = self.eval_num_episodes_per_iter()
             self.eval_num_episodes_per_iter.step()
         self._eval_sampler.reset()
-        with (
-            autocast(**self.enable_amp)
-            if self.enable_amp["enabled"]
-            else contextlib.suppress()
+        for _ in self._eval_sampler.sample(
+            eval_num_timesteps_per_iter,
+            eval_num_episodes_per_iter,
         ):
-            for _ in self._eval_sampler.sample(
-                eval_num_timesteps_per_iter,
-                eval_num_episodes_per_iter,
-            ):
-                pass
+            pass
         for schedule in self._eval_agent.schedules.values():
             schedule.step()
         return self._eval_sampler.stats
@@ -1353,7 +1341,7 @@ class DistributedDataParallelAlgorithm(SyncDistributedTrainable):
                 Default to ``{}``.
             placement_strategy:
                 The placement strategy
-                (see https://docs.ray.io/en/latest/ray-core/placement-group.html).
+                (see https://docs.ray.io/en/releases-1.13.0/ray-core/placement-group.html for Ray 1.13.0).
             backend:
                 The backend for distributed execution
                 (see https://pytorch.org/docs/stable/distributed.html#torch.distributed.init_process_group).

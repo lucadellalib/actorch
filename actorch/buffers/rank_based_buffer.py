@@ -43,6 +43,8 @@ class RankBasedBuffer(ProportionalBuffer):
 
     """
 
+    is_prioritized = True  # override
+
     _STATE_VARS = ProportionalBuffer._STATE_VARS  # override
     _STATE_VARS.remove("epsilon")
 

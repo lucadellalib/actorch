@@ -93,8 +93,8 @@ class KFACModule(ABC, CheckpointableMixin, nn.Module):
             )
             self._dA, self._dG = A.new_zeros(A.shape[0]), G.new_zeros(G.shape[0])
             self._QA, self._QG = A.new_zeros(A.shape), G.new_zeros(G.shape)
-        self._update_exp_moving_average(self._A, A, decay)
-        self._update_exp_moving_average(self._G, G, decay)
+        self._update_exp_moving_average_(self._A, A, decay)
+        self._update_exp_moving_average_(self._G, G, decay)
 
     def update_eigen_AG(self, epsilon: "float") -> "None":
         """Update eigenvalues and eigenvectors of A and G.
@@ -128,14 +128,15 @@ class KFACModule(ABC, CheckpointableMixin, nn.Module):
         v = self._QG @ v2 @ self._QA.t()
         return v
 
-    def _update_exp_moving_average(
+    def _update_exp_moving_average_(
         self, current: "Tensor", new: "Tensor", weight: "float"
-    ) -> "None":
+    ) -> "Tensor":
         if weight == 1.0:
-            return
+            return current
         current *= weight / (1 - weight)
         current += new
         current *= 1 - weight
+        return current
 
     @property
     @abstractmethod

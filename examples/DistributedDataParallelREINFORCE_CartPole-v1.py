@@ -17,6 +17,7 @@
 """Train distributed data parallel REINFORCE on CartPole-v1."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
+# pip install gymnasium[classic_control]
 # actorch run DistributedDataParallelREINFORCE_CartPole-v1.py
 
 import gymnasium as gym

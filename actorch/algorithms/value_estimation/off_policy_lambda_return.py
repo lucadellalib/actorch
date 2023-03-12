@@ -40,7 +40,8 @@ def off_policy_lambda_return(
     mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
     trace_decay: "float" = 1.0,
-) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Union[Tensor, Distribution], Optional[Tensor]]":
     """Compute the (possibly distributional) off-policy lambda returns, a.k.a.
     Harutyunyan's et al. Q(lambda), and the corresponding advantages of a
     trajectory.
@@ -70,12 +71,14 @@ def off_policy_lambda_return(
         The discount factor (`gamma` in the literature).
     trace_decay:
         The trace-decay parameter (`lambda` in the literature).
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The (possibly distributional) off-policy lambda returns,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape: ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True, None otherwise, shape: ``[B, T]``.
 
     References
     ----------
@@ -100,4 +103,5 @@ def off_policy_lambda_return(
         discount=discount,
         num_return_steps=rewards.shape[1],
         trace_decay=trace_decay,
+        return_advantage=return_advantage,
     )

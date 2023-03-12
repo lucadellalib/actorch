@@ -14,9 +14,10 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Advantage Actor-Critic on LunarLander-v2."""
+"""Train Advantage Actor-Critic (A2C) on LunarLander-v2."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
+# pip install gymnasium[box2d]
 # actorch run A2C_LunarLander-v2.py
 
 import gymnasium as gym

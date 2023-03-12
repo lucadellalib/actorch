@@ -32,7 +32,7 @@ __all__ = [
 ]
 
 
-def generalized_estimator(
+def generalized_estimator(  # noqa: C901
     state_values: "Union[Tensor, Distribution]",
     rewards: "Tensor",
     terminals: "Tensor",
@@ -44,7 +44,8 @@ def generalized_estimator(
     discount: "float" = 0.99,
     num_return_steps: "int" = 1,
     trace_decay: "float" = 1.0,
-) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Union[Tensor, Distribution], Optional[Tensor]]":
     """Compute the (possibly distributional) generalized estimator targets
     and the corresponding advantages of a trajectory.
 
@@ -81,12 +82,14 @@ def generalized_estimator(
         The number of return steps (`n` in the literature).
     trace_decay:
         The trace-decay parameter (`lambda` in the literature).
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The (possibly distributional) generalized estimator targets,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True, None otherwise, shape: ``[B, T]``.
 
     Raises
     ------
@@ -199,6 +202,8 @@ def generalized_estimator(
             f"be equal to the shape of `rewards` ({rewards.shape})"
         )
     targets, state_values, next_state_values = _compute_targets(*compute_targets_args)
+    if not return_advantage:
+        return targets, None
     advantages = _compute_advantages(
         targets,
         state_values,
@@ -308,7 +313,7 @@ def _compute_distributional_targets(
     B, T = rewards.shape
     num_return_steps = min(num_return_steps, T)
     length = mask.sum(dim=1, keepdim=True)
-    idx = torch.arange(1, T + 1).expand(B, T)
+    idx = torch.arange(1, T + 1, device=length.device).expand(B, T)
     if state_values.batch_shape == (B, T + 1):
         next_state_values = distributional_gather(
             state_values,
@@ -316,7 +321,7 @@ def _compute_distributional_targets(
             idx.clamp(max=length),
             mask * (~terminals),
         )
-        idx = torch.arange(0, T).expand(B, T)
+        idx = torch.arange(0, T, device=length.device).expand(B, T)
         state_values = distributional_gather(
             state_values,
             1,
@@ -361,7 +366,9 @@ def _compute_distributional_targets(
         next_state_value_coeffs *= ~terminals
         next_state_value_coeffs *= mask
         # Gather
-        idx = torch.arange(num_return_steps - 1, T + num_return_steps - 1).expand(B, T)
+        idx = torch.arange(
+            num_return_steps - 1, T + num_return_steps - 1, device=length.device
+        ).expand(B, T)
         next_state_values = distributional_gather(
             next_state_values,
             1,
@@ -371,7 +378,7 @@ def _compute_distributional_targets(
         targets = TransformedDistribution(
             next_state_values,
             AffineTransform(offsets, next_state_value_coeffs),
-            next_state_values._validate_args,
+            validate_args=False,
         ).reduced_dist
         return targets, state_values, next_state_values
     coeffs = torch.stack(
@@ -403,14 +410,11 @@ def _compute_distributional_targets(
         next_state_values, (B, T, num_return_steps)
     )
     # Transform
-    validate_args = (
-        state_or_action_values._validate_args or next_state_values._validate_args
-    )
     targets = TransformedDistribution(
         CatDistribution(
             [state_or_action_values, next_state_values],
             dim=-1,
-            validate_args=validate_args,
+            validate_args=False,
         ),
         [
             AffineTransform(
@@ -420,7 +424,7 @@ def _compute_distributional_targets(
             SumTransform((2,)),
             SumTransform((num_return_steps,)),
         ],
-        validate_args=validate_args,
+        validate_args=False,
     ).reduced_dist
     return targets, state_values, next_state_values
 
@@ -462,9 +466,8 @@ def _compute_advantages(
             trace_decay * targets + (1 - trace_decay) * state_values,
             [0, 1],
         )[:, 1:]
-        next_targets[torch.arange(B), length - 1] = next_state_values[
-            torch.arange(B), length - 1
-        ]
+        batch_idx = torch.arange(B)
+        next_targets[batch_idx, length - 1] = next_state_values[batch_idx, length - 1]
         action_values = rewards + discount * next_targets
     advantages = advantage_weights * (action_values - state_values)
     advantages *= mask

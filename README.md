@@ -14,33 +14,36 @@ Welcome to `actorch`, a deep reinforcement learning framework for fast prototypi
 - [REINFORCE](https://people.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf)
 - [Advantage Actor-Critic (A2C)](https://arxiv.org/abs/1602.01783)
 - [Actor-Critic Kronecker-Factored Trust Region (ACKTR)](https://arxiv.org/abs/1708.05144)
+- [Trust Region Policy Optimization (TRPO)](https://arxiv.org/abs/1502.05477)
 - [Proximal Policy Optimization (PPO)](https://arxiv.org/abs/1707.06347)
 - [Advantage-Weighted Regression (AWR)](https://arxiv.org/abs/1910.00177)
 - [Deep Deterministic Policy Gradient (DDPG)](https://arxiv.org/abs/1509.02971)
+- [Distributional Deep Deterministic Policy Gradient (D3PG)](https://arxiv.org/abs/1804.08617)
 - [Twin Delayed Deep Deterministic Policy Gradient (TD3)](https://arxiv.org/abs/1802.09477)
+- [Soft Actor-Critic (SAC)](https://arxiv.org/abs/1801.01290)
 
 ---------------------------------------------------------------------------------------------------------
 
 ## 💡 Key features
 
 - Support for [OpenAI Gymnasium](https://gymnasium.farama.org/) environments
-- Support for custom observation/action spaces
-- Support for custom multimodal input multimodal output models
-- Support for recurrent models (e.g. RNNs, LSTMs, GRUs, etc.)
-- Support for custom policy/value distributions
-- Support for custom preprocessing/postprocessing pipelines
-- Support for custom exploration strategies
+- Support for **custom observation/action spaces**
+- Support for **custom multimodal input multimodal output models**
+- Support for **recurrent models** (e.g. RNNs, LSTMs, GRUs, etc.)
+- Support for **custom policy/value distributions**
+- Support for **custom preprocessing/postprocessing pipelines**
+- Support for **custom exploration strategies**
 - Support for [normalizing flows](https://arxiv.org/abs/1906.02771)
 - Batched environments (both for training and evaluation)
-- Batched trajectory replay
-- Batched and distributional value estimation (e.g. batched and distributional [Retrace](https://arxiv.org/abs/1606.02647) and [V-trace](https://arxiv.org/abs/1802.01561))
-- Data parallel and distributed data parallel multi-GPU training and evaluation
-- Automatic mixed precision training
-- Integration with [Ray Tune](https://docs.ray.io/en/releases-1.13.0/tune/index.html) for experiment execution and hyperparameter tuning at any scale
-- Effortless experiment definition through Python-based configuration files
-- Built-in visualization tool to plot performance metrics
-- Modular object-oriented design
-- Detailed API documentation
+- Batched **trajectory replay**
+- Batched and **distributional value estimation** (e.g. batched and distributional [Retrace](https://arxiv.org/abs/1606.02647) and [V-trace](https://arxiv.org/abs/1802.01561))
+- Data parallel and distributed data parallel **multi-GPU training and evaluation**
+- Automatic **mixed precision training**
+- Integration with [Ray Tune](https://docs.ray.io/en/releases-1.13.0/tune/index.html) for experiment execution and **hyperparameter tuning** at any scale
+- Effortless experiment definition through **Python-based configuration files**
+- Built-in **visualization tool** to plot performance metrics
+- Modular **object-oriented** design
+- Detailed **API documentation**
 
 ---------------------------------------------------------------------------------------------------------
 
@@ -161,7 +164,7 @@ experiment_params = ExperimentParams(
         enable_amp=False,
         enable_reproducibility=True,
         log_sys_usage=True,
-        suppress_warnings=False,
+        suppress_warnings=True,
     ),
 )
 ```
@@ -197,6 +200,8 @@ You can find the generated plots in `plots`.
 
 Congratulations, you ran your first experiment!
 
+See `examples` for additional configuration file examples.
+
 **HINT**: since a configuration file is a regular Python script, you can use all the
 features of the language (e.g. inheritance).
 
@@ -214,6 +219,21 @@ features of the language (e.g. inheritance).
 - [Monitoring jobs with Ray Dashboard](https://docs.ray.io/en/releases-1.13.0/ray-core/ray-dashboard.html)
 
 - [Setting up a cluster with Ray Cluster](https://docs.ray.io/en/releases-1.13.0/cluster/index.html)
+
+---------------------------------------------------------------------------------------------------------
+
+## @ Citation
+
+```
+@misc{DellaLibera2022ACTorch,
+  author = {Luca Della Libera},
+  title = {{ACTorch}: a Deep Reinforcement Learning Framework for Fast Prototyping},
+  year = {2022},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/lucadellalib/actorch}},
+}
+```
 
 ---------------------------------------------------------------------------------------------------------
 

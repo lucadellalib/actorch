@@ -100,7 +100,7 @@ class SyncDistributedTrainable(DistributedTrainable):
                 Default to ``{}``.
             placement_strategy:
                 The placement strategy
-                (see https://docs.ray.io/en/latest/ray-core/placement-group.html).
+                (see https://docs.ray.io/en/releases-1.13.0/ray-core/placement-group.html for Ray 1.13.0).
             reduction_mode:
                 The reduction mode for worker results.
                 Must be one of the following:
@@ -225,7 +225,7 @@ class SyncDistributedTrainable(DistributedTrainable):
             "        Default to ``{}``." + "\n"
             "    placement_strategy:" + "\n"
             "        The placement strategy" + "\n"
-            "        (see https://docs.ray.io/en/latest/ray-core/placement-group.html)."
+            f"        (see https://docs.ray.io/en/releases-{ray.__version__}/ray-core/placement-group.html)."
         )
 
     # override

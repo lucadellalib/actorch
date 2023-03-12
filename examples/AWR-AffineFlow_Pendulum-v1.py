@@ -14,16 +14,52 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Advantage-Weighted Regression (AWR) on Pendulum-v1."""
+"""Train Advantage-Weighted Regression (AWR) equipped with an affine flow policy on Pendulum-v1."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
 # pip install gymnasium[classic_control]
-# actorch run AWR_Pendulum-v1.py
+# actorch run AWR-AffineFlow_Pendulum-v1.py
 
 import gymnasium as gym
+import torch
+from torch import nn
 from torch.optim import Adam
 
 from actorch import *
+
+
+class AffineFlow(NormalizingFlow):
+    bijective = True  # override
+    is_constant_jacobian = True  # override
+    domain = torch.distributions.constraints.real  # override
+    codomain = torch.distributions.constraints.real  # override
+
+    # override
+    def __init__(self, cache_size=0):
+        super().__init__(cache_size)
+        # Pendulum-v1 action shape: (1,)
+        weight = nn.Parameter(torch.ones(1))
+        self.register_parameter("weight", weight)
+
+    # override
+    def _call(self, x):
+        return x * self.weight
+
+    # override
+    def _inverse(self, y):
+        return y / (self.weight + 1e-6)
+
+    # override
+    def log_abs_det_jacobian(self, x, y):
+        return self.weight.abs().log()
+
+    # override
+    def forward_shape(self, shape):
+        return shape
+
+    # override
+    def inverse_shape(self, shape):
+        return shape
 
 
 experiment_params = ExperimentParams(
@@ -51,6 +87,9 @@ experiment_params = ExperimentParams(
                 {"out_features": 256, "bias": True},
             ],
             "independent_heads": ["action/log_scale"],
+        },
+        policy_network_normalizing_flows={
+            "action": AffineFlow(),
         },
         policy_network_optimizer_builder=Adam,
         policy_network_optimizer_config={"lr": 5e-3},

@@ -40,7 +40,8 @@ def importance_sampling(
     log_is_weights: "Tensor",
     mask: "Optional[Tensor]" = None,
     discount: "float" = 0.99,
-) -> "Tuple[Union[Tensor, Distribution], Tensor]":
+    return_advantage: "bool" = True,
+) -> "Tuple[Union[Tensor, Distribution], Optional[Tensor]]":
     """Compute the (possibly distributional) importance sampling targets,
     a.k.a. IS, and the corresponding advantages of a trajectory.
 
@@ -73,12 +74,14 @@ def importance_sampling(
         Default to ``torch.ones_like(rewards, dtype=torch.bool)``.
     discount:
         The discount factor (`gamma` in the literature).
+    return_advantage:
+        True to additionally return the advantages, False otherwise.
 
     Returns
     -------
         - The (possibly distributional) importance sampling targets,
           shape (or batch shape if distributional, assuming an empty event shape): ``[B, T]``;
-        - the corresponding advantages, shape: ``[B, T]``.
+        - the corresponding advantages if `return_advantage` is True, None otherwise, shape: ``[B, T]``.
 
     References
     ----------
@@ -108,4 +111,5 @@ def importance_sampling(
         discount=discount,
         num_return_steps=rewards.shape[1],
         trace_decay=1.0,
+        return_advantage=return_advantage,
     )

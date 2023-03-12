@@ -14,68 +14,34 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Train Advantage-Weighted Regression equipped with a normalizing flow policy on Pendulum-v1."""
+"""Train Proximal Policy Optimization (PPO) on Pendulum-v1 assuming a Laplace policy distribution."""
 
 # Navigate to `<path-to-repository>/examples`, open a terminal and run:
-# actorch run AWR-NormalizingFlow_Pendulum-v1.py
+# pip install gymnasium[classic_control]
+# actorch run PPO-Laplace_Pendulum-v1.py
 
 import gymnasium as gym
-import torch
-from torch import nn
+from torch.distributions import Laplace
 from torch.optim import Adam
 
 from actorch import *
 
 
-class AffineFlow(NormalizingFlow):
-    bijective = True  # override
-    is_constant_jacobian = True  # override
-    domain = torch.distributions.constraints.real  # override
-    codomain = torch.distributions.constraints.real  # override
-
-    # override
-    def __init__(self, cache_size=0):
-        super().__init__(cache_size)
-        # Pendulum-v1 action shape: (1,)
-        weight = nn.Parameter(torch.ones(1))
-        self.register_parameter("weight", weight)
-
-    # override
-    def _call(self, x):
-        return x * self.weight
-
-    # override
-    def _inverse(self, y):
-        return y / (self.weight + 1e-6)
-
-    # override
-    def log_abs_det_jacobian(self, x, y):
-        return self.weight.abs().log()
-
-    # override
-    def forward_shape(self, shape):
-        return shape
-
-    # override
-    def inverse_shape(self, shape):
-        return shape
-
-
 experiment_params = ExperimentParams(
-    run_or_experiment=AWR,
+    run_or_experiment=PPO,
     stop={"timesteps_total": int(1e5)},
     resources_per_trial={"cpu": 1, "gpu": 0},
     checkpoint_freq=10,
     checkpoint_at_end=True,
     log_to_file=True,
     export_formats=["checkpoint", "model"],
-    config=AWR.Config(
+    config=PPO.Config(
         train_env_builder=lambda **config: ParallelBatchedEnv(
             lambda **kwargs: gym.make("Pendulum-v1", **kwargs),
             config,
             num_workers=2,
         ),
-        train_num_timesteps_per_iter=400,
+        train_num_timesteps_per_iter=2048,
         eval_freq=10,
         eval_env_config={"render_mode": None},
         eval_num_episodes_per_iter=10,
@@ -87,11 +53,21 @@ experiment_params = ExperimentParams(
             ],
             "independent_heads": ["action/log_scale"],
         },
-        policy_network_normalizing_flows={
-            "action": AffineFlow(),
+        policy_network_distribution_builders={"action": Laplace},
+        policy_network_distribution_parametrizations={
+            "action": {
+                "loc": (
+                    {"loc": (1,)},
+                    lambda x: x["loc"],
+                ),
+                "scale": (
+                    {"log_scale": (1,)},
+                    lambda x: x["log_scale"].exp(),
+                ),
+            },
         },
         policy_network_optimizer_builder=Adam,
-        policy_network_optimizer_config={"lr": 5e-3},
+        policy_network_optimizer_config={"lr": 5e-5},
         value_network_model_builder=FCNet,
         value_network_model_config={
             "torso_fc_configs": [
@@ -100,16 +76,13 @@ experiment_params = ExperimentParams(
             ],
         },
         value_network_optimizer_builder=Adam,
-        value_network_optimizer_config={"lr": 5e-3},
-        buffer_config={"capacity": int(1e4)},
+        value_network_optimizer_config={"lr": 3e-3},
         discount=0.99,
         trace_decay=0.95,
-        num_updates_per_iter=400,
-        batch_size=32,
-        max_trajectory_length=float("inf"),
-        weight_clip=20.0,
-        temperature=0.05,
-        normalize_advantage=False,
+        num_epochs=20,
+        minibatch_size=16,
+        ratio_clip=0.2,
+        normalize_advantage=True,
         entropy_coeff=0.01,
         max_grad_l2_norm=0.5,
         seed=0,

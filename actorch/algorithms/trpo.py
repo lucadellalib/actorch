@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Advantage-Weighted Regression (AWR)."""
+"""Trust Region Policy Optimization (TRPO)."""
 
 import contextlib
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -24,7 +24,8 @@ from gymnasium import Env
 from numpy import ndarray
 from torch import Tensor
 from torch.cuda.amp import autocast
-from torch.distributions import Distribution
+from torch.distributions import Distribution, kl_divergence
+from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
@@ -33,34 +34,31 @@ from actorch.algorithms.a2c import A2C, DistributedDataParallelA2C, Loss, LRSche
 from actorch.algorithms.algorithm import RefOrFutureRef, Tunable
 from actorch.algorithms.utils import normalize_
 from actorch.algorithms.value_estimation import lambda_return
-from actorch.buffers import Buffer
-from actorch.datasets import BufferDataset
 from actorch.envs import BatchedEnv
 from actorch.models import Model
 from actorch.networks import DistributionParametrization, NormalizingFlow, Processor
+from actorch.optimizers import CGBLS
 from actorch.samplers import Sampler
 from actorch.schedules import ConstantSchedule, Schedule
 
 
 __all__ = [
-    "AWR",
-    "DistributedDataParallelAWR",
+    "DistributedDataParallelTRPO",
+    "TRPO",
 ]
 
 
-class AWR(A2C):
-    """Advantage-Weighted Regression (AWR).
+class TRPO(A2C):
+    """Trust Region Policy Optimization (TRPO).
 
     References
     ----------
-    .. [1] X. B. Peng, A. Kumar, G. Zhang, and S. Levine.
-           "Advantage-Weighted Regression: Simple and Scalable Off-Policy Reinforcement Learning".
-           In: arXiv. 2019.
-           URL: https://arxiv.org/abs/1910.00177
+    .. [1] J. Schulman, S. Levine, P. Abbeel, M. Jordan, and P. Moritz.
+           "Trust Region Policy Optimization".
+           In: ICML. 2015, pp. 1889-1897.
+           URL: https://arxiv.org/abs/1502.05477
 
     """
-
-    _OFF_POLICY = True  # override
 
     # override
     class Config(dict):
@@ -97,8 +95,6 @@ class AWR(A2C):
             policy_network_postprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             policy_network_optimizer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Optimizer]]]]" = None,
             policy_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            policy_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
-            policy_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_preprocessors: "Tunable[RefOrFutureRef[Optional[Dict[str, Processor]]]]" = None,
             value_network_model_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Model]]]]" = None,
             value_network_model_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
@@ -108,20 +104,10 @@ class AWR(A2C):
             value_network_optimizer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             value_network_optimizer_lr_scheduler_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., LRScheduler]]]]" = None,
             value_network_optimizer_lr_scheduler_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            buffer_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., Buffer]]]]" = None,
-            buffer_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
-            buffer_checkpoint: "Tunable[RefOrFutureRef[bool]]" = False,
             dataloader_builder: "Tunable[RefOrFutureRef[Optional[Callable[..., DataLoader]]]]" = None,
             dataloader_config: "Tunable[RefOrFutureRef[Optional[Dict[str, Any]]]]" = None,
             discount: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.99,
             trace_decay: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.95,
-            num_updates_per_iter: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 1000,
-            batch_size: "Tunable[RefOrFutureRef[Union[int, Schedule]]]" = 128,
-            max_trajectory_length: "Tunable[RefOrFutureRef[Union[int, float, Schedule]]]" = float(  # noqa: B008
-                "inf"
-            ),
-            weight_clip: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 20.0,
-            temperature: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.05,
             normalize_advantage: "Tunable[RefOrFutureRef[bool]]" = False,
             entropy_coeff: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = 0.01,
             max_grad_l2_norm: "Tunable[RefOrFutureRef[Union[float, Schedule]]]" = float(  # noqa: B008
@@ -170,8 +156,6 @@ class AWR(A2C):
                 policy_network_postprocessors=policy_network_postprocessors,
                 policy_network_optimizer_builder=policy_network_optimizer_builder,
                 policy_network_optimizer_config=policy_network_optimizer_config,
-                policy_network_optimizer_lr_scheduler_builder=policy_network_optimizer_lr_scheduler_builder,
-                policy_network_optimizer_lr_scheduler_config=policy_network_optimizer_lr_scheduler_config,
                 value_network_preprocessors=value_network_preprocessors,
                 value_network_model_builder=value_network_model_builder,
                 value_network_model_config=value_network_model_config,
@@ -181,18 +165,10 @@ class AWR(A2C):
                 value_network_optimizer_config=value_network_optimizer_config,
                 value_network_optimizer_lr_scheduler_builder=value_network_optimizer_lr_scheduler_builder,
                 value_network_optimizer_lr_scheduler_config=value_network_optimizer_lr_scheduler_config,
-                buffer_builder=buffer_builder,
-                buffer_config=buffer_config,
-                buffer_checkpoint=buffer_checkpoint,
                 dataloader_builder=dataloader_builder,
                 dataloader_config=dataloader_config,
                 discount=discount,
                 trace_decay=trace_decay,
-                num_updates_per_iter=num_updates_per_iter,
-                batch_size=batch_size,
-                max_trajectory_length=max_trajectory_length,
-                weight_clip=weight_clip,
-                temperature=temperature,
                 normalize_advantage=normalize_advantage,
                 entropy_coeff=entropy_coeff,
                 max_grad_l2_norm=max_grad_l2_norm,
@@ -209,31 +185,17 @@ class AWR(A2C):
 
     # override
     def setup(self, config: "Dict[str, Any]") -> "None":
-        self.config = AWR.Config(**self.config)
+        self.config = TRPO.Config(**self.config)
         self.config["_accept_kwargs"] = True
         super().setup(config)
         if not isinstance(self.trace_decay, Schedule):
             self.trace_decay = ConstantSchedule(self.trace_decay)
-        if not isinstance(self.num_updates_per_iter, Schedule):
-            self.num_updates_per_iter = ConstantSchedule(self.num_updates_per_iter)
-        if not isinstance(self.batch_size, Schedule):
-            self.batch_size = ConstantSchedule(self.batch_size)
-        if not isinstance(self.max_trajectory_length, Schedule):
-            self.max_trajectory_length = ConstantSchedule(self.max_trajectory_length)
-        if not isinstance(self.weight_clip, Schedule):
-            self.weight_clip = ConstantSchedule(self.weight_clip)
-        if not isinstance(self.temperature, Schedule):
-            self.temperature = ConstantSchedule(self.temperature)
 
     # override
     @property
     def _checkpoint(self) -> "Dict[str, Any]":
         checkpoint = super()._checkpoint
         checkpoint["trace_decay"] = self.trace_decay.state_dict()
-        checkpoint["num_updates_per_iter"] = self.num_updates_per_iter.state_dict()
-        checkpoint["batch_size"] = self.batch_size.state_dict()
-        checkpoint["weight_clip"] = self.weight_clip.state_dict()
-        checkpoint["temperature"] = self.temperature.state_dict()
         return checkpoint
 
     # override
@@ -241,45 +203,35 @@ class AWR(A2C):
     def _checkpoint(self, value: "Dict[str, Any]") -> "None":
         super()._checkpoint = value
         self.trace_decay.load_state_dict(value["trace_decay"])
-        self.weight_clip.load_state_dict(value["weight_clip"])
-        self.temperature.load_state_dict(value["temperature"])
 
     # override
-    def _build_buffer(self) -> "Buffer":
-        if self.buffer_config is None:
-            self.buffer_config = {"capacity": int(1e5)}
-        return super()._build_buffer()
-
-    # override
-    def _build_buffer_dataset(self) -> "BufferDataset":
-        if self.buffer_dataset_config is None:
-            self.buffer_dataset_config = {
-                "batch_size": self.batch_size,
-                "max_trajectory_length": self.max_trajectory_length,
-                "num_iters": self.num_updates_per_iter,
-            }
-        return super()._build_buffer_dataset()
+    def _build_policy_network_optimizer(self) -> "Optimizer":
+        if self.policy_network_optimizer_builder is None:
+            self.policy_network_optimizer_builder = CGBLS
+            if self.policy_network_optimizer_config is None:
+                self.policy_network_optimizer_config = {
+                    "max_constraint": 0.01,
+                    "num_cg_iters": 10,
+                    "max_backtracks": 15,
+                    "backtrack_ratio": 0.8,
+                    "hvp_reg_coeff": 1e-5,
+                    "accept_violation": False,
+                    "epsilon": 1e-8,
+                }
+        if self.policy_network_optimizer_config is None:
+            self.policy_network_optimizer_config = {}
+        return self.policy_network_optimizer_builder(
+            self._policy_network.parameters(),
+            **self.policy_network_optimizer_config,
+        )
 
     # override
     def _train_step(self) -> "Dict[str, Any]":
         result = super()._train_step()
         self.trace_decay.step()
-        self.weight_clip.step()
-        self.temperature.step()
         result["trace_decay"] = self.trace_decay()
-        result["num_updates_per_iter"] = self.num_updates_per_iter()
-        result["batch_size"] = self.batch_size()
-        result["max_trajectory_length"] = (
-            self.max_trajectory_length()
-            if self.max_trajectory_length() != float("inf")
-            else "inf"
-        )
-        result["weight_clip"] = self.weight_clip()
-        result["temperature"] = self.temperature()
         result["entropy_coeff"] = result.pop("entropy_coeff", None)
         result["max_grad_l2_norm"] = result.pop("max_grad_l2_norm", None)
-        result["buffer_num_experiences"] = self._buffer.num_experiences
-        result["buffer_num_full_trajectories"] = self._buffer.num_full_trajectories
         result.pop("num_return_steps", None)
         return result
 
@@ -343,55 +295,100 @@ class AWR(A2C):
             raise ValueError(
                 f"`entropy_coeff` ({entropy_coeff}) must be in the interval [0, inf)"
             )
-
-        weight_clip = self.weight_clip()
-        if weight_clip <= 0.0:
-            raise ValueError(
-                f"`weight_clip` ({weight_clip}) must be in the interval (0, inf)"
-            )
-
-        temperature = self.temperature()
-        if temperature <= 0.0:
-            raise ValueError(
-                f"`temperature` ({temperature}) must be in the interval (0, inf)"
-            )
-
         with (
             autocast(**self.enable_amp)
             if self.enable_amp["enabled"]
             else contextlib.suppress()
         ):
             advantage = advantages[mask]
-            self._policy_network(experiences["observation"], mask=mask)
-            policy = self._policy_network.distribution
-            log_prob = policy.log_prob(experiences["action"])[mask]
-            weight = (advantage / temperature).exp().clamp(max=weight_clip)
-            loss = -weight * log_prob
-            entropy_bonus = None
-            if entropy_coeff != 0.0:
-                entropy_bonus = -entropy_coeff * policy.entropy()[mask]
-                loss += entropy_bonus
-            loss = loss.mean()
-        optimize_result = self._optimize_policy_network(loss)
+            old_log_prob = experiences["log_prob"][mask]
+            with torch.no_grad():
+                self._policy_network(experiences["observation"], mask=mask)
+                old_policy = self._policy_network.distribution
+        policy = loss = log_prob = entropy_bonus = kl_div = None
+
+        def compute_loss() -> "Tensor":
+            nonlocal policy, loss, log_prob, entropy_bonus
+            with (
+                autocast(**self.enable_amp)
+                if self.enable_amp["enabled"]
+                else contextlib.suppress()
+            ):
+                self._policy_network(experiences["observation"], mask=mask)
+                policy = self._policy_network.distribution
+                log_prob = policy.log_prob(experiences["action"])[mask]
+                ratio = (log_prob - old_log_prob).exp()
+                loss = -advantage * ratio
+                entropy_bonus = None
+                if entropy_coeff != 0.0:
+                    entropy_bonus = -entropy_coeff * policy.entropy()[mask]
+                    loss += entropy_bonus
+                loss = loss.mean()
+                return loss
+
+        def compute_kl_div() -> "Tensor":
+            nonlocal policy, kl_div
+            with (
+                autocast(**self.enable_amp)
+                if self.enable_amp["enabled"]
+                else contextlib.suppress()
+            ):
+                if policy is None:
+                    self._policy_network(experiences["observation"], mask=mask)
+                    policy = self._policy_network.distribution
+                kl_div = kl_divergence(old_policy, policy)[mask].mean()
+                policy = None
+                return kl_div
+
+        loss = compute_loss()
+        optimize_result = self._optimize_policy_network(
+            loss, compute_loss, compute_kl_div
+        )
         result = {
             "advantage": advantage.mean().item(),
-            "weight": weight.mean().item(),
             "log_prob": log_prob.mean().item(),
-            "loss": loss.item(),
+            "old_log_prob": old_log_prob.mean().item(),
         }
+        if kl_div is not None:
+            result["kl_div"] = kl_div.item()
+        result["loss"] = loss.item()
         if entropy_bonus is not None:
             result["entropy_bonus"] = entropy_bonus.mean().item()
         result.update(optimize_result)
         return result
 
+    # override
+    def _optimize_policy_network(
+        self,
+        loss: "Tensor",
+        loss_fn: "Callable[[], Tensor]",
+        constraint_fn: "Callable[[], Tensor]",
+    ) -> "Dict[str, Any]":
+        max_grad_l2_norm = self.max_grad_l2_norm()
+        if max_grad_l2_norm <= 0.0:
+            raise ValueError(
+                f"`max_grad_l2_norm` ({max_grad_l2_norm}) must be in the interval (0, inf]"
+            )
+        self._policy_network_optimizer.zero_grad(set_to_none=True)
+        self._grad_scaler.scale(loss).backward(retain_graph=True)
+        self._grad_scaler.unscale_(self._policy_network_optimizer)
+        grad_l2_norm = clip_grad_norm_(
+            self._policy_network.parameters(), max_grad_l2_norm
+        )
+        self._grad_scaler.step(self._policy_network_optimizer, loss_fn, constraint_fn)
+        result = {
+            "grad_l2_norm": min(grad_l2_norm.item(), max_grad_l2_norm),
+        }
+        return result
 
-class DistributedDataParallelAWR(DistributedDataParallelA2C):
-    """Distributed data parallel Advantage-Weighted Regression (AWR).
+
+class DistributedDataParallelTRPO(DistributedDataParallelA2C):
+    """Distributed data parallel Trust Region Policy Optimization (TRPO).
 
     See Also
     --------
-    actorch.algorithms.awr.AWR
+    actorch.algorithms.trpo.TRPO
 
     """
 
-    _ALGORITHM_CLS = AWR  # override
+    _ALGORITHM_CLS = TRPO  # override
